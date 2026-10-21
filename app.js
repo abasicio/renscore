@@ -189,6 +189,7 @@ function scheduleRefresh(live) {
 // ---------- Hentning ----------
 
 async function loadFootball() {
+  loadTv(ui.day);
   const leagues = LEAGUES.filter((l) => prefs.enabled.has(l.id));
   const key = apiDay(ui.day) + '|' + leagues.map((l) => l.id).join(',');
   const d = data.football;
@@ -232,11 +233,15 @@ async function loadUfc() {
 
 async function loadSummary(leagueId, id) {
   const key = `${leagueId}:${id}`;
+  const cached = eventCache.get(key);
+  if (cached?.date) loadTv(parseDate(cached.date));
   if (data.summary.key !== key) { data.summary = { key, value: null }; }
   try {
     const value = await getJSON(`${API}/soccer/${leagueId}/summary?event=${id}`);
     if (data.summary.key !== key) return;
     data.summary.value = value;
+    const d = value?.header?.competitions?.[0]?.date;
+    if (d) loadTv(parseDate(d));
   } catch { /* behold det vi har */ }
   render();
   const s = data.summary.value?.header?.competitions?.[0]?.status;
@@ -317,6 +322,88 @@ function load() {
   if (r.name === 'match') return loadSummary(r.league, r.id);
   if (r.name === 'fav') return loadFavorites();
   clearTimeout(refreshTimer);
+}
+
+
+// ---------- TV-kanaler (TV 2's åbne tv-guide) ----------
+
+const TVAPI = 'https://tvtid-api.api.tv2.dk/api/tvtid/v1';
+const TV_CHANNELS = {
+  156: 'TV3 Sport', 6: 'TV3+', 12948: 'TV3 Max', 5: 'TV3', 10111: 'Canal 9', 7: 'Kanal 5', 10066: "6'eren",
+  77: 'TV 2 Sport', 2147483561: 'TV 2 Sport X', 3: 'TV 2', 174: 'Eurosport 1', 37: 'Eurosport 2', 1: 'DR1', 2: 'DR2',
+};
+const NOT_MATCHES = /goal show|studie|studio|magasin|tilsyn|podcast|highlights|optakt|trænerne/i;
+const tv = { days: {}, loading: {} }; // "2026-10-21" -> [{ch, start, home, away}]
+
+const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+/** Gør holdnavne sammenlignelige: små bogstaver, uden accenter og uden "FC", "IF" osv. */
+function normTeam(s) {
+  return (s || '').toLowerCase()
+    .replace(/ø/g, 'o').replace(/æ/g, 'ae').replace(/å/g, 'a').replace(/ß/g, 'ss')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/münchen|munchen/g, 'munich').replace(/kobenhavn/g, 'copenhagen').replace(/koln/g, 'cologne')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(' ').filter((w) => w && !['fc', 'if', 'bk', 'afc', 'cf', 'sc', 'ac', 'fk', 'sk', 'club', 'de', 'cd', 'the', 'boldklub'].includes(w))
+    .join(' ');
+}
+function sameTeam(a, b) {
+  const x = normTeam(a), y = normTeam(b);
+  if (!x || !y) return false;
+  if (x === y || x.includes(y) || y.includes(x)) return true;
+  const wx = x.split(' ').filter((w) => w.length >= 4), wy = new Set(y.split(' ').filter((w) => w.length >= 4));
+  return wx.some((w) => wy.has(w));
+}
+
+/** Henter dagens livesendte sportsprogrammer og hvilke hold, der spiller. Gemmes pr. dag. */
+async function loadTv(day) {
+  const key = isoDay(day);
+  if (tv.days[key] || tv.loading[key]) return;
+  tv.loading[key] = true;
+  try {
+    const qs = Object.keys(TV_CHANNELS).map((id) => 'ch=' + id).join('&');
+    const channels = await getJSON(`${TVAPI}/epg/dayviews/${key}?${qs}`);
+    const progs = channels.flatMap((c) => (c.programs || []).map((p) => ({ ...p, ch: c.id })))
+      .filter((p) => p.live && !p.rerun && !NOT_MATCHES.test(p.title) && (p.categories || []).some((c) => c.startsWith('Sport')));
+    const cache = storage.get('tvTeasers', {});
+    const found = [];
+    for (let i = 0; i < progs.length; i += 8) {
+      await Promise.all(progs.slice(i, i + 8).map(async (p) => {
+        // Kampen står i titlen ("Herreligaen: A - B") eller i programmets teaser ("Como - Manchester United").
+        let text = / - /.test(p.title) ? p.title.replace(/^[^:]*:\s*/, '') : cache[p.id];
+        if (text === undefined) {
+          text = (await getJSON(`${TVAPI}/schedules/channels/${p.ch}/programs/${p.id}`).then((r) => r.program?.teaser).catch(() => null)) || '';
+          cache[p.id] = text;
+        }
+        const m = text.split(/\s+[-–]\s+/);
+        if (m.length === 2) found.push({ ch: TV_CHANNELS[p.ch] || '', start: p.start * 1000, home: m[0].trim(), away: m[1].split(',')[0].trim() });
+      }));
+    }
+    // Hold cachen lille: kun de nyeste 500 programmer.
+    storage.set('tvTeasers', Object.fromEntries(Object.entries(cache).slice(-500)));
+    tv.days[key] = found;
+  } catch {
+    tv.days[key] = null; // prøv igen ved næste opdatering
+  } finally {
+    tv.loading[key] = false;
+  }
+  if (!tv.days[key]) delete tv.days[key];
+  render();
+}
+
+/** Kanaler for en kamp: begge hold skal passe, og sendingen skal starte tæt på kampstart. */
+function channelsFor(e) {
+  const kick = parseDate(e.date);
+  if (!kick) return [];
+  const list = tv.days[isoDay(kick)];
+  if (!list) return [];
+  const cs = e.competitions?.[0]?.competitors || [];
+  const names = (c) => [c?.team?.displayName, c?.team?.shortDisplayName];
+  const home = cs.find((c) => c.homeAway === 'home'), away = cs.find((c) => c.homeAway === 'away');
+  const fits = (n, c) => names(c).some((x) => sameTeam(n, x));
+  const hits = list.filter((t) => Math.abs(t.start - kick) <= 75 * 60e3 &&
+    ((fits(t.home, home) && fits(t.away, away)) || (fits(t.home, away) && fits(t.away, home))));
+  return [...new Map(hits.map((h) => [h.ch, h])).values()];
 }
 
 // ---------- Routing ----------
@@ -435,8 +522,14 @@ function matchRow(e, leagueId) {
     `<div class="mscores ${live ? 'live' : ''}">${cs.map((c) => `<div class="${lose(c) && !live ? 'lose' : ''}">${esc(scoreOf(c))}</div>`).join('')}</div>`;
   return `<a class="match" href="#/match/${encodeURIComponent(leagueId)}/${encodeURIComponent(e.id)}">
     <div class="mtime"><span>${fmt.time(parseDate(e.date))}</span><span class="${live ? 'live' : ''}">${esc(rowStatus(e))}</span></div>
-    <div class="mteams">${teams}</div>${scores}
+    <div class="mteams">${teams}${tvLine(e)}</div>${scores}
   </a>`;
+}
+
+function tvLine(e) {
+  if (isDone(e)) return '';
+  const chs = channelsFor(e);
+  return chs.length ? `<div class="tvline">📺 ${chs.map((c) => esc(c.ch)).join(' · ')}</div>` : '';
 }
 
 function emptyBox(icon, title, text) {
@@ -554,7 +647,14 @@ function viewMatch(leagueId, id) {
     <div class="utabs">${tabs.map(([t, label]) => `<button class="${ui.detailTab === t ? 'sel' : ''}" data-action="dtab" data-v="${t}">${label}</button>`).join('')}</div>
   </header><main>`;
 
-  if (ui.detailTab === 'details') html += detailsTab(timeline, home, st, event);
+  if (ui.detailTab === 'details') {
+    const chs = st === 'post' ? [] : channelsFor({ date: event.date, competitions: [{ competitors: cs }] });
+    if (chs.length) {
+      html += `<section class="card"><div class="card-head"><span class="flag">📺</span><div><div class="t">Se den på</div><div class="s">Dansk tv · fra TV 2's tv-guide</div></div></div>
+        ${chs.map((c) => `<div class="sep"></div><div class="tvrow"><b>${esc(c.ch)}</b><span>${fmt.time(new Date(c.start))}</span></div>`).join('')}</section>`;
+    }
+    html += detailsTab(timeline, home, st, event);
+  }
   else if (ui.detailTab === 'stats') html += statsTab(stats(home?.team?.id), stats(away?.team?.id));
   else if (ui.detailTab === 'lineups') html += lineupsTab(home, away, roster, sum?.keyEvents || [], fallbackLogo);
   else if (ui.detailTab === 'table') html += tableTab(groups, [home?.team?.id, away?.team?.id]);

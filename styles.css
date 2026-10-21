@@ -107,6 +107,9 @@ main { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 12px;
 .team.lose { color: var(--muted); }
 .team .rec { font-size: 11px; color: var(--muted); }
 .team .fav { color: #f5c400; font-size: 10px; }
+.tvline { font-size: 11.5px; color: var(--brand); font-weight: 600; margin-top: -1px; }
+.tvrow { display: flex; justify-content: space-between; padding: 11px 14px; font-size: 15px; }
+.tvrow span { color: var(--muted); font-variant-numeric: tabular-nums; }
 .logo { width: 18px; height: 18px; object-fit: contain; flex: 0 0 auto; }
 .logo-ph { width: 18px; height: 18px; border-radius: 50%; background: var(--fill); flex: 0 0 auto; }
 .mscores { padding: 0 16px 0 8px; display: flex; flex-direction: column; gap: 7px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
