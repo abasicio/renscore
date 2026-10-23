@@ -190,6 +190,7 @@ function scheduleRefresh(live) {
 
 async function loadFootball() {
   loadTv(ui.day);
+  loadStreaming();
   const leagues = LEAGUES.filter((l) => prefs.enabled.has(l.id));
   const key = apiDay(ui.day) + '|' + leagues.map((l) => l.id).join(',');
   const d = data.football;
@@ -234,6 +235,7 @@ async function loadUfc() {
 async function loadSummary(leagueId, id) {
   const key = `${leagueId}:${id}`;
   const cached = eventCache.get(key);
+  loadStreaming();
   if (cached?.date) loadTv(parseDate(cached.date));
   if (data.summary.key !== key) { data.summary = { key, value: null }; }
   try {
@@ -342,7 +344,7 @@ function normTeam(s) {
   return (s || '').toLowerCase()
     .replace(/ø/g, 'o').replace(/æ/g, 'ae').replace(/å/g, 'a').replace(/ß/g, 'ss')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/münchen|munchen/g, 'munich').replace(/kobenhavn/g, 'copenhagen').replace(/koln/g, 'cologne')
+    .replace(/münchen|munchen/g, 'munich').replace(/\bpsg\b/g, 'paris saint germain').replace(/\bman\b/g, 'manchester').replace(/\butd\b/g, 'united').replace(/kobenhavn/g, 'copenhagen').replace(/koln/g, 'cologne')
     .replace(/[^a-z0-9 ]/g, ' ')
     .split(' ').filter((w) => w && !['fc', 'if', 'bk', 'afc', 'cf', 'sc', 'ac', 'fk', 'sk', 'club', 'de', 'cd', 'the', 'boldklub'].includes(w))
     .join(' ');
@@ -404,6 +406,51 @@ async function loadTv(day) {
   render();
 }
 
+// ---------- Streaming ----------
+
+// Tv-kanalerne kan også streames her.
+const STREAM_OF = {
+  'TV3 Sport': 'Viaplay', 'TV3+': 'Viaplay', 'TV3 Max': 'Viaplay', 'TV3': 'Viaplay',
+  'TV 2 Sport': 'TV 2 Play', 'TV 2 Sport X': 'TV 2 Play', 'TV 2': 'TV 2 Play',
+  'Eurosport 1': 'HBO Max', 'Eurosport 2': 'HBO Max', 'Canal 9': 'HBO Max', 'Kanal 5': 'HBO Max', "6'eren": 'HBO Max',
+  DR1: 'DR TV', DR2: 'DR TV',
+};
+const streaming = { events: null, at: 0 };
+
+/** Viaplays program ligger i streaming.json, som GitHub Actions opdaterer hver 3. time. */
+async function loadStreaming() {
+  if (Date.now() - streaming.at < 3600e3) return;
+  streaming.at = Date.now();
+  try {
+    streaming.events = (await getJSON('streaming.json')).events || [];
+    render();
+  } catch {
+    streaming.at = 0;
+  }
+}
+
+/** Hvor kampen kan ses: tv-kanaler og streamingtjenester. */
+function watchFor(e) {
+  const kick = parseDate(e.date);
+  const tvs = channelsFor(e);
+  const stream = new Set(tvs.map((c) => STREAM_OF[c.ch]).filter(Boolean));
+  if (kick && streaming.events) {
+    const cs = e.competitions?.[0]?.competitors || [];
+    const home = cs.find((c) => c.homeAway === 'home'), away = cs.find((c) => c.homeAway === 'away');
+    // Viaplays sending starter med studiet op til 1½ time før kampstart.
+    for (const t of streaming.events) {
+      if (t.start < kick - 90 * 60e3 || t.start > kick + 15 * 60e3) continue;
+      if (fitsPair(t, home, away)) stream.add(t.s);
+    }
+  }
+  return { tvs, stream: [...stream] };
+}
+
+function fitsPair(t, home, away) {
+  const fits = (n, c) => [c?.team?.displayName, c?.team?.shortDisplayName].some((x) => sameTeam(n, x));
+  return (fits(t.home, home) && fits(t.away, away)) || (fits(t.home, away) && fits(t.away, home));
+}
+
 /** Kanaler for en kamp: begge hold skal passe, og sendingen skal starte tæt på kampstart. */
 function channelsFor(e) {
   const kick = parseDate(e.date);
@@ -411,11 +458,8 @@ function channelsFor(e) {
   const list = tv.days[isoDay(kick)];
   if (!list) return [];
   const cs = e.competitions?.[0]?.competitors || [];
-  const names = (c) => [c?.team?.displayName, c?.team?.shortDisplayName];
   const home = cs.find((c) => c.homeAway === 'home'), away = cs.find((c) => c.homeAway === 'away');
-  const fits = (n, c) => names(c).some((x) => sameTeam(n, x));
-  const hits = list.filter((t) => Math.abs(t.start - kick) <= 75 * 60e3 &&
-    ((fits(t.home, home) && fits(t.away, away)) || (fits(t.home, away) && fits(t.away, home))));
+  const hits = list.filter((t) => Math.abs(t.start - kick) <= 75 * 60e3 && fitsPair(t, home, away));
   return [...new Map(hits.map((h) => [h.ch, h])).values()];
 }
 
@@ -541,8 +585,11 @@ function matchRow(e, leagueId) {
 
 function tvLine(e) {
   if (isDone(e)) return '';
-  const chs = channelsFor(e);
-  return chs.length ? `<div class="tvline">📺 ${chs.map((c) => esc(c.ch)).join(' · ')}</div>` : '';
+  const { tvs, stream } = watchFor(e);
+  const parts = [];
+  if (tvs.length) parts.push('📺 ' + tvs.map((c) => esc(c.ch)).join(' · '));
+  if (stream.length) parts.push('▶ ' + stream.map(esc).join(' · '));
+  return parts.length ? `<div class="tvline">${parts.join('&nbsp;&nbsp;')}</div>` : '';
 }
 
 function emptyBox(icon, title, text) {
@@ -661,10 +708,11 @@ function viewMatch(leagueId, id) {
   </header><main>`;
 
   if (ui.detailTab === 'details') {
-    const chs = st === 'post' ? [] : channelsFor({ date: event.date, competitions: [{ competitors: cs }] });
-    if (chs.length) {
-      html += `<section class="card"><div class="card-head"><span class="flag">📺</span><div><div class="t">Se den på</div><div class="s">Dansk tv · fra TV 2's tv-guide</div></div></div>
-        ${chs.map((c) => `<div class="sep"></div><div class="tvrow"><b>${esc(c.ch)}</b><span>${fmt.time(new Date(c.start))}</span></div>`).join('')}</section>`;
+    const w = st === 'post' ? { tvs: [], stream: [] } : watchFor({ date: event.date, competitions: [{ competitors: cs }] });
+    if (w.tvs.length || w.stream.length) {
+      html += `<section class="card"><div class="card-head"><span class="flag">📺</span><div><div class="t">Se den på</div><div class="s">Tv og streaming i Danmark</div></div></div>
+        ${w.tvs.map((c) => `<div class="sep"></div><div class="tvrow"><b>${esc(c.ch)}</b><span>Tv · ${fmt.time(new Date(c.start))}</span></div>`).join('')}
+        ${w.stream.map((s) => `<div class="sep"></div><div class="tvrow"><b>${esc(s)}</b><span>Streaming</span></div>`).join('')}</section>`;
     }
     html += detailsTab(timeline, home, st, event);
   }
