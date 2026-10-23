@@ -355,6 +355,16 @@ function sameTeam(a, b) {
   return wx.some((w) => wy.has(w));
 }
 
+/** "A - B" eller "A-B" → [A, B]. Kun hvis teksten deler sig i præcis to hold. */
+function teamPair(text) {
+  const clean = (x) => x.split(',')[0].replace(/\(.*?\)/g, '').trim();
+  for (const sep of [/\s+[-–]\s+/, /[-–]/]) {
+    const m = (text || '').split(sep);
+    if (m.length === 2 && m[0].trim() && m[1].trim()) return m.map(clean);
+  }
+  return null;
+}
+
 /** Henter dagens livesendte sportsprogrammer og hvilke hold, der spiller. Gemmes pr. dag. */
 async function loadTv(day) {
   const key = isoDay(day);
@@ -369,14 +379,17 @@ async function loadTv(day) {
     const found = [];
     for (let i = 0; i < progs.length; i += 8) {
       await Promise.all(progs.slice(i, i + 8).map(async (p) => {
-        // Kampen står i titlen ("Herreligaen: A - B") eller i programmets teaser ("Como - Manchester United").
-        let text = / - /.test(p.title) ? p.title.replace(/^[^:]*:\s*/, '') : cache[p.id];
-        if (text === undefined) {
-          text = (await getJSON(`${TVAPI}/schedules/channels/${p.ch}/programs/${p.id}`).then((r) => r.program?.teaser).catch(() => null)) || '';
-          cache[p.id] = text;
+        // Kampen står i titlen ("Serie A: Torino-Monza") eller i programmets teaser ("Randers FC - Brøndby IF").
+        let pair = teamPair(p.title.replace(/^[^:]*:\s*/, ''));
+        if (!pair) {
+          let text = cache[p.id];
+          if (text === undefined) {
+            text = (await getJSON(`${TVAPI}/schedules/channels/${p.ch}/programs/${p.id}`).then((r) => r.program?.teaser).catch(() => null)) || '';
+            cache[p.id] = text;
+          }
+          pair = teamPair(text);
         }
-        const m = text.split(/\s+[-–]\s+/);
-        if (m.length === 2) found.push({ ch: TV_CHANNELS[p.ch] || '', start: p.start * 1000, home: m[0].trim(), away: m[1].split(',')[0].trim() });
+        if (pair) found.push({ ch: TV_CHANNELS[p.ch] || '', start: p.start * 1000, home: pair[0], away: pair[1] });
       }));
     }
     // Hold cachen lille: kun de nyeste 500 programmer.
