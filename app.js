@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 17; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
+const APP_VERSION = 18; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -87,6 +87,26 @@ const prefs = (() => {
   return { enabled, favorites: storage.get('favorites', []) };
 })();
 
+// Farvepalet (Indstillinger → Farver). Sættes med det samme, så den gamle farve aldrig blinker.
+const PALETTES = [
+  { id: 'blue', name: 'Stadion', light: ['#f2f4f8', '#3352ff'], dark: ['#0a0e18', '#5672ff'] },
+  { id: 'green', name: 'Græs', light: ['#f1f5f1', '#10955b'], dark: ['#08110c', '#2fcf7c'] },
+  { id: 'sunset', name: 'Aftensol', light: ['#f6f3ef', '#f4561d'], dark: ['#100c0a', '#ff6a35'] },
+  { id: 'volt', name: 'Floodlight', light: ['#f3f2ee', '#d7ff3a'], dark: ['#0a0c10', '#d7ff3a'] },
+];
+const darkMode = window.matchMedia?.('(prefers-color-scheme: dark)');
+function applyPalette(id) {
+  const p = PALETTES.find((x) => x.id === id) || PALETTES[0];
+  if (p.id === 'blue') delete document.documentElement.dataset.palette;
+  else document.documentElement.dataset.palette = p.id;
+  // Statuslinjen/Safari-bjælken følger baggrunden.
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+    m.content = (m.media.includes('dark') ? p.dark : p.light)[0];
+  });
+}
+prefs.palette = storage.get('palette', 'blue');
+applyPalette(prefs.palette);
+
 function saveEnabled() { storage.set('enabled', [...prefs.enabled]); }
 function saveFavorites() { storage.set('favorites', prefs.favorites); }
 const isFav = (teamId) => prefs.favorites.some((f) => f.id === teamId);
@@ -169,7 +189,10 @@ const logoImg = (url, cls = 'logo', px = cls === '' ? 160 : 80) =>
 
 const ui = {
   sport: 'football',
-  day: startOfDay(new Date()),
+  day: (() => {
+    const m = /[?&]day=(\d{4})(\d{2})(\d{2})/.exec(location.search);
+    return m ? new Date(+m[1], +m[2] - 1, +m[3]) : startOfDay(new Date());
+  })(),
   liveOnly: false,
   ufcMode: 'next',
   detailTab: 'details',
@@ -221,12 +244,13 @@ function storeDay(key, days) {
 }
 
 /** Henter alle ligaer for en dag. onPart kaldes, hver gang en liga er hentet. */
+let lastFetchError = '';
 async function fetchDay(day, leagues, onPart, opts) {
   const parts = new Array(leagues.length);
   await Promise.all(leagues.map((l, i) =>
     getJSON(`${API}/soccer/${l.id}/scoreboard?dates=${apiDay(day)}`, opts)
       .then((r) => { parts[i] = (r.events || []).sort((a, b) => parseDate(a.date) - parseDate(b.date)); })
-      .catch(() => { parts[i] = null; })
+      .catch((err) => { parts[i] = null; lastFetchError = `${err?.name || 'Fejl'}: ${err?.message || err}`; })
       .finally(() => onPart?.(parts))));
   return parts;
 }
@@ -376,9 +400,11 @@ async function loadSummary(leagueId, id) {
     const value = await getJSON(`${API}/soccer/${leagueId}/summary?event=${id}`, { priority: 'high' });
     if (data.summary.key !== key) return;
     data.summary.value = value;
+    data.summary.error = '';
     const d = value?.header?.competitions?.[0]?.date;
     if (d) loadTv(parseDate(d));
-  } catch {
+  } catch (err) {
+    data.summary.error = `${err?.name || 'Fejl'}: ${err?.message || err}`;
     // Fejlede det, før vi havde noget, så prøv igen om lidt i stedet for om 5 minutter.
     if (data.summary.key === key && !data.summary.value) {
       render();
@@ -725,7 +751,7 @@ function footballBody() {
   const vis = (evs) => (ui.liveOnly ? evs.filter(isLive) : evs);
   const days = f.days.map((x) => ({ ...x, events: vis(x.events) })).filter((x) => x.events.length);
   if (f.loading) return skeleton(3);
-  if (f.failed) return emptyBox('📡', 'Ingen forbindelse', 'Tryk på ↻ for at prøve igen.');
+  if (f.failed) return emptyBox('📡', 'Ingen forbindelse', `Tryk på ↻ for at prøve igen. (${lastFetchError || 'ukendt fejl'})`);
   if (!days.length) {
     if (!ui.liveOnly) return emptyBox('⚽', 'Ingen kampe', 'Der er ingen kampe i dine ligaer denne dag.');
     // Intet live lige nu: vis resten af dagens kampe i stedet for en tom side.
@@ -1043,7 +1069,9 @@ function viewMatch(leagueId, id) {
         ${w.stream.map((s) => `<div class="sep"></div><div class="tvrow"><b>${esc(s)}</b><span>Streaming</span></div>`).join('')}</section>`;
     }
     const extra = formCard(sum, home, away) + h2hCard(sum, home, away, colors);
-    if (!sum) html += skeleton(2); // kampdata er på vej
+    if (!sum && data.summary.error && data.summary.key === `${leagueId}:${id}`) {
+      html += `<section class="card">${emptyBox('📡', 'Kunne ikke hente kampen', `Prøver igen om lidt. (${data.summary.error})`)}</section>`;
+    } else if (!sum) html += skeleton(2); // kampdata er på vej
     else if (timeline.length || !extra) html += detailsTab(timeline, home, st, event);
     html += extra;
   }
@@ -1276,6 +1304,11 @@ function renderSheetList() {
 function viewSettings() {
   const countries = [...new Set(LEAGUES.map((l) => l.country))];
   let html = '<header class="top"><div class="row"><h1>Indstillinger</h1></div></header><main>';
+  const dark = darkMode?.matches;
+  html += `<div class="group-title">Farver</div><section class="card"><div class="palettes">${PALETTES.map((p) => {
+    const [bg, accent] = dark ? p.dark : p.light;
+    return `<button class="pal ${prefs.palette === p.id ? 'sel' : ''}" data-action="palette" data-v="${p.id}" style="--pal-bg:${bg};--pal-accent:${accent}"><i></i>${esc(p.name)}</button>`;
+  }).join('')}</div></section>`;
   html += countries.map((c) => `<div class="group-title">${esc(c)}</div><section class="card">${LEAGUES.filter((l) => l.country === c).map((l) => `
     <button class="toggle-row" style="width:100%;text-align:left" data-action="league" data-id="${l.id}"><span>${l.flag}</span><span>${esc(l.name)}</span>
       <span class="sw ${prefs.enabled.has(l.id) ? 'on' : ''}"></span></button>`).join('<div class="sep"></div>')}</section>`).join('');
@@ -1292,6 +1325,7 @@ function viewSettings() {
 const actions = {
   sport(el) { Motion.hint = { dir: el.dataset.v === 'mma' ? 1 : -1 }; ui.sport = el.dataset.v; render(); load(); },
   today() { goToday(); },
+  palette(el) { prefs.palette = el.dataset.v; storage.set('palette', prefs.palette); applyPalette(prefs.palette); render(); },
   live() {
     ui.liveOnly = !ui.liveOnly;
     // Live betyder "lige nu", uanset hvilken dag man stod på.

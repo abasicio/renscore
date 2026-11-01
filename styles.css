@@ -4,51 +4,89 @@
 @font-face { font-family: "Barlow Condensed"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/barlow-condensed-700.woff2") format("woff2"); }
 @font-face { font-family: "Barlow Condensed"; font-weight: 800; font-style: italic; font-display: swap; src: url("fonts/barlow-condensed-800-italic.woff2") format("woff2"); }
 
-/* Lys: kampprogram-papir */
+/* ---------- Farvepaletter ----------
+   Fælles: lys/mørk følger telefonen. data-palette på <html> vælger accentfarven (Indstillinger → Farver).
+   Standard er "Stadion" (blå). */
 :root {
-  --bg: #f3f2ee;
-  --bg-glass: rgba(243, 242, 238, 0.78);
+  --bg: #f2f4f8;
+  --bg-glass: rgba(242, 244, 248, 0.8);
   --card: #ffffff;
   --card-2: #ffffff;
-  --text: #0f1115;
-  --text-2: #3b404a;
-  --muted: #7a7f8a;
-  --line: rgba(15, 17, 21, 0.08);
-  --fill: rgba(15, 17, 21, 0.055);
-  --accent: #d7ff3a;      /* volt – kun til det valgte og det vigtige */
-  --accent-ink: #0f1115;  /* tekst oven på volt */
-  --accent-text: #0f1115; /* volt som tekst er ulæseligt på lyst – brug blæk */
-  --live: #ff3b4e;
-  --win: #19b867;
-  --draw: #9097a3;
-  --brand: #0f1115;
+  --text: #0d1220;
+  --text-2: #394256;
+  --muted: #707a8f;
+  --line: rgba(13, 18, 32, 0.08);
+  --fill: rgba(13, 18, 32, 0.055);
+  --accent: #3352ff;
+  --accent-ink: #ffffff;
+  --accent-text: #2a46e6;
+  --live: #f0384d;
+  --win: #17b26a;
+  --draw: #9aa1ad;
+  --brand: var(--accent);
   --away: #00ad9e;
-  --link: #3b404a;
+  --link: #394256;
   --pitch: #2f8a4c;
-  --tabbar: rgba(255, 255, 255, 0.8);
-  --shadow: 0 1px 0 rgba(15, 17, 21, 0.03), 0 12px 32px -22px rgba(15, 17, 21, 0.35);
-  --hero: #0b0d12;
+  --tabbar: rgba(255, 255, 255, 0.82);
+  --shadow: 0 1px 0 rgba(13, 18, 32, 0.03), 0 12px 32px -22px rgba(13, 18, 32, 0.35);
+  --hero: #0c1430;
   --display: "Barlow Condensed", ui-rounded, -apple-system, system-ui, sans-serif;
   color-scheme: light;
 }
-/* Mørk: floodlight */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0a0c10;
-    --bg-glass: rgba(10, 12, 16, 0.74);
-    --card: #13161c;
-    --card-2: #1c2028;
-    --text: #f2f4f7;
-    --text-2: #c3c8d1;
-    --muted: #7f8794;
+    --bg: #0a0e18;
+    --bg-glass: rgba(10, 14, 24, 0.76);
+    --card: #131a28;
+    --card-2: #1c2436;
+    --text: #eef1f7;
+    --text-2: #c2c9d6;
+    --muted: #8590a6;
     --line: rgba(255, 255, 255, 0.07);
     --fill: rgba(255, 255, 255, 0.06);
-    --accent-text: #d7ff3a;
-    --brand: #d7ff3a;
-    --link: #c3c8d1;
-    --tabbar: rgba(22, 25, 32, 0.78);
+    --accent: #5672ff;
+    --accent-text: #93a6ff;
+    --link: #c2c9d6;
+    --tabbar: rgba(20, 26, 40, 0.8);
     --shadow: none;
+    --hero: #0a1026;
     color-scheme: dark;
+  }
+}
+
+/* Græs: grøn som en nyslået bane */
+:root[data-palette="green"] {
+  --bg: #f1f5f1; --bg-glass: rgba(241, 245, 241, 0.8);
+  --accent: #10955b; --accent-ink: #ffffff; --accent-text: #0c7a4a; --hero: #0a1a12;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="green"] {
+    --bg: #08110c; --bg-glass: rgba(8, 17, 12, 0.76); --card: #111c16; --card-2: #1a281f;
+    --accent: #2fcf7c; --accent-ink: #04140b; --accent-text: #63e3a1; --tabbar: rgba(17, 28, 22, 0.8); --hero: #07130d;
+  }
+}
+
+/* Aftensol: varm orange */
+:root[data-palette="sunset"] {
+  --bg: #f6f3ef; --bg-glass: rgba(246, 243, 239, 0.8);
+  --accent: #f4561d; --accent-ink: #ffffff; --accent-text: #d8460f; --hero: #1a0f0a;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="sunset"] {
+    --bg: #100c0a; --bg-glass: rgba(16, 12, 10, 0.76); --card: #1b1512; --card-2: #261e1a;
+    --accent: #ff6a35; --accent-ink: #ffffff; --accent-text: #ff9466; --tabbar: rgba(27, 21, 18, 0.8); --hero: #140d0a;
+  }
+}
+
+/* Floodlight: volt på blæk */
+:root[data-palette="volt"] {
+  --bg: #f3f2ee; --bg-glass: rgba(243, 242, 238, 0.8);
+  --accent: #d7ff3a; --accent-ink: #0f1115; --accent-text: #0f1115; --hero: #0b0d12;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="volt"] {
+    --bg: #0a0c10; --bg-glass: rgba(10, 12, 16, 0.76); --card: #13161c; --card-2: #1c2028;
+    --accent: #d7ff3a; --accent-ink: #0f1115; --accent-text: #d7ff3a; --tabbar: rgba(22, 25, 32, 0.8); --hero: #0b0d12;
   }
 }
 
@@ -78,7 +116,6 @@ img { display: block; }
 .top h1 { flex: 1; margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.6px; }
 .wordmark { font-family: var(--display); font-style: italic; font-weight: 800 !important; font-size: 30px !important; letter-spacing: 0.2px !important; text-transform: uppercase; line-height: 1; }
 .wordmark em { font-style: italic; color: var(--accent-text); }
-@media (prefers-color-scheme: light) { .wordmark em { -webkit-text-stroke: 0; background: linear-gradient(transparent 62%, var(--accent) 62%, var(--accent) 92%, transparent 92%); padding: 0 1px; } }
 .top .title-center { flex: 1; text-align: center; font-size: 16px; font-weight: 650; margin: 0; }
 
 .iconbtn {
@@ -267,7 +304,7 @@ main { padding: 14px 12px 4px; display: flex; flex-direction: column; gap: 12px;
 .table td.tm { text-align: left; }
 .table td.tm div { display: flex; align-items: center; gap: 9px; }
 .table td.tm span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; font-weight: 550; }
-.table tr.hl { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.table tr.hl { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .table tr.hl td { font-weight: 800; color: var(--text); }
 .table td.pts { font-family: var(--display); font-weight: 700; font-size: 17px; }
 
@@ -323,8 +360,8 @@ main { padding: 14px 12px 4px; display: flex; flex-direction: column; gap: 12px;
 }
 .tabbar a { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 0 6px; font-size: 10.5px; font-weight: 650; color: var(--muted); transition: color 0.25s; }
 .tabbar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
-.tabbar a.sel { color: var(--text); }
-.tabbar a.sel svg { stroke: var(--text); fill: color-mix(in srgb, var(--accent) 80%, transparent); }
+.tabbar a.sel { color: var(--accent-text); }
+.tabbar a.sel svg { stroke: var(--accent-text); fill: color-mix(in srgb, var(--accent) 22%, transparent); }
 .tabbar.hidden { display: none; }
 
 @media (min-width: 640px) {
@@ -367,7 +404,7 @@ main { padding: 14px 12px 4px; display: flex; flex-direction: column; gap: 12px;
 .cm .ic { width: 20px; flex-shrink: 0; display: grid; place-items: center; font-size: 14px; padding-top: 1px; }
 .cm .txt { flex: 1; min-width: 0; }
 .cm .ct { color: var(--muted); }
-.cm.goal { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.cm.goal { background: color-mix(in srgb, var(--win) 13%, transparent); }
 .cm.goal b { font-size: 15px; font-weight: 800; }
 p.note { text-align: center; font-size: 12px; color: var(--muted); margin: 4px 0 0; }
 
@@ -384,7 +421,7 @@ main { touch-action: pan-y pinch-zoom; will-change: transform; }
 .days .ind { background: var(--accent); border-radius: 14px; }
 .utabs .ind { top: auto; bottom: 0; height: 2px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
 .utabs.ind-on button.sel { border-color: transparent; }
-.tabbar .ind { background: var(--fill); border-radius: 24px; }
+.tabbar .ind { background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 24px; }
 .chip, .day, .day span { transition: color 0.25s; }
 
 /* Mål! */
@@ -411,8 +448,17 @@ main { touch-action: pan-y pinch-zoom; will-change: transform; }
 /* Træk for at opdatere */
 .ptr { position: fixed; left: 50%; width: 30px; height: 30px; margin-left: -15px; z-index: 9; opacity: 0; pointer-events: none; }
 .ptr svg { width: 100%; height: 100%; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linejoin: round; transition: stroke 0.2s; }
-.ptr.ready svg { stroke: var(--text); fill: color-mix(in srgb, var(--accent) 70%, transparent); }
+.ptr.ready svg { stroke: var(--accent-text); fill: color-mix(in srgb, var(--accent) 25%, transparent); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Farvevælger i Indstillinger */
+.palettes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 14px 16px 16px; }
+.pal { display: flex; flex-direction: column; align-items: center; gap: 7px; font-size: 12px; font-weight: 650; color: var(--muted); }
+.pal i { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; position: relative; overflow: hidden;
+  background: var(--pal-bg); box-shadow: inset 0 0 0 1px var(--line); }
+.pal i::before { content: ""; width: 22px; height: 22px; border-radius: 50%; background: var(--pal-accent); }
+.pal.sel { color: var(--text); }
+.pal.sel i { box-shadow: 0 0 0 2.5px var(--accent); }
