@@ -107,7 +107,7 @@ img { display: block; }
 /* ---------- Top (glas) ---------- */
 .top {
   position: sticky; top: 0; z-index: 10;
-  padding: calc(env(safe-area-inset-top) + 12px) 0 10px;
+  padding: calc(env(safe-area-inset-top, 0px) + 14px) 0 10px;
   background: var(--bg-glass);
   backdrop-filter: saturate(170%) blur(22px); -webkit-backdrop-filter: saturate(170%) blur(22px);
   border-bottom: 0.5px solid var(--line);
@@ -326,7 +326,7 @@ main { padding: 14px 12px 4px; display: flex; flex-direction: column; gap: 12px;
 /* Tilføj hold (ark) */
 .sheet { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: flex; flex-direction: column; animation: up 0.24s cubic-bezier(0.2, 0.8, 0.2, 1); }
 @keyframes up { from { transform: translateY(24px); opacity: 0.6; } }
-.sheet .sh-top { padding: calc(env(safe-area-inset-top) + 10px) 16px 12px; background: var(--bg-glass); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px); border-bottom: 0.5px solid var(--line); }
+.sheet .sh-top { padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 12px; background: var(--bg-glass); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px); border-bottom: 0.5px solid var(--line); }
 .sheet .sh-row { display: flex; align-items: center; }
 .sheet .sh-row h2 { flex: 1; text-align: center; font-size: 16px; font-weight: 700; margin: 0; }
 .sheet .done { color: var(--text); font-weight: 750; width: 60px; text-align: right; }
