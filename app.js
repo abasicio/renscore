@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 16; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
+const APP_VERSION = 17; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -699,7 +699,7 @@ function viewScores() {
 
   let head = `<header class="top">
     <div class="row">
-      <h1>RenScore</h1>
+      <h1 class="wordmark">Ren<em>Score</em></h1>
       ${ui.sport === 'football' && !sameDay(ui.day, today) ? `<button class="today-btn" data-action="today">${sameDay(ui.day, addDays(today, -1)) || ui.day < today ? '' : '‹ '}I dag${ui.day < today ? ' ›' : ''}</button>` : ''}
       ${ui.sport === 'football' ? `<button class="live-btn ${ui.liveOnly ? 'on' : ''}" data-action="live"><span class="dot"></span>LIVE${liveCount ? ' ' + liveCount : ''}</button>` : ''}
       <button class="iconbtn" data-action="refresh" aria-label="Opdater">${REFRESH_ICON}</button>
@@ -709,7 +709,7 @@ function viewScores() {
       <button class="chip ${ui.sport === 'mma' ? 'sel' : ''}" data-action="sport" data-v="mma">🥊 MMA</button>
     </div>`;
   if (ui.sport === 'football') {
-    head += `<div class="days" data-ind="days">${days.map((d) => `<button class="day ${sameDay(d, ui.day) ? 'sel' : ''}" data-action="day" data-v="${d.getTime()}"><b>${fmt.weekdayShort(d)}</b><span>${fmt.dayMonth(d)}</span></button>`).join('')}</div>`;
+    head += `<div class="days" data-ind="days">${days.map((d) => `<button class="day ${sameDay(d, ui.day) ? 'sel' : ''} ${sameDay(d, today) ? 'today' : ''}" data-action="day" data-v="${d.getTime()}" aria-label="${esc(d.toLocaleDateString('da-DK', { weekday: 'long', day: 'numeric', month: 'long' }))}"><b>${fmt.weekdayShort(d)}</b><span>${d.getDate()}</span></button>`).join('')}</div>`;
   } else {
     head += `<div class="chips" data-ind="ufc">
       <button class="chip ${ui.ufcMode === 'next' ? 'sel' : ''}" data-action="ufc" data-v="next">Næste</button>
@@ -763,13 +763,16 @@ function matchRow(e, leagueId) {
   </a>`;
 }
 
+const TV_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3.5" width="13" height="9" rx="2"/><path d="M6 1.5l2 2 2-2"/></svg>';
+const PLAY_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M6.7 5.6l3.6 2.4-3.6 2.4z" fill="currentColor" stroke="none"/></svg>';
+
 function tvLine(e) {
   if (isDone(e)) return '';
   const { tvs, stream } = watchFor(e);
   const parts = [];
-  if (tvs.length) parts.push('📺 ' + tvs.map((c) => esc(c.ch)).join(' · '));
-  if (stream.length) parts.push('▶ ' + stream.map(esc).join(' · '));
-  return parts.length ? `<div class="tvline">${parts.join('&nbsp;&nbsp;')}</div>` : '';
+  if (tvs.length) parts.push(`<span>${TV_ICON}${tvs.map((c) => esc(c.ch)).join(' · ')}</span>`);
+  if (stream.length) parts.push(`<span>${PLAY_ICON}${stream.map(esc).join(' · ')}</span>`);
+  return parts.length ? `<div class="tvline">${parts.join('')}</div>` : '';
 }
 
 /** Grå pladsholdere i kampkortenes form, mens data hentes. */
@@ -1026,7 +1029,7 @@ function viewMatch(leagueId, id) {
     ? `<div class="kick">${fmt.time(parseDate(event.date))}</div><div class="stat">${esc(event.date ? fmt.dayLabel(parseDate(event.date)) : '')}</div>`
     : `<div class="score" data-score="head">${esc(scoreOf(home))}<i>-</i>${esc(scoreOf(away))}</div><div class="stat ${st === 'in' ? 'live' : ''}">${esc(matchStatus(event))}</div>`;
 
-  let html = `<header class="top mtop" style="--hc:${colors.h};--ac:${colors.a}">
+  let html = `<header class="top mtop" style="--hc:${colors.h};--ac:${colors.a}"><div class="glow"></div>
     <div class="row"><button class="iconbtn" data-action="back" aria-label="Tilbage">${BACK_ICON}</button><p class="title-center">${esc(league.name)}</p><span style="width:34px"></span></div>
     <div class="mhead">${teamCol(home)}<div class="mid">${mid}</div>${teamCol(away)}</div>
     <div class="utabs" data-ind="utabs" data-ind-style="line">${tabs.map(([t, label]) => `<button class="${ui.detailTab === t ? 'sel' : ''}" data-action="dtab" data-v="${t}">${label}</button>`).join('')}</div>

@@ -22,6 +22,8 @@ const Motion = (() => {
   const GROUPS = {
     block: { sel: 'main > *', key: (el, i) => el.dataset.k || el.querySelector('.card-head .t')?.textContent || `${el.className}#${i}` },
     crest: { sel: '.mhead .crest', key: (el, i) => i },
+    glow: { sel: '.mtop .glow', key: () => 'glow' },
+    score: { sel: '.mhead .mid', key: () => 'mid' },
     bar: { sel: '.srow .bars i', key: (el, i) => i },
     pill: { sel: '.fg b', key: (el, i) => i },
     h2h: { sel: '.h2hbar i', key: (el, i) => i },
@@ -95,14 +97,21 @@ const Motion = (() => {
       gsap.fromTo(fresh.crest, { scale: 0.9, opacity: 0 },
         { scale: 1, opacity: 1, duration: 0.3, ease: 'power2.out', stagger: 0.05, clearProps: 'transform,opacity' });
     }
+    // Kampsiden: lysene tændes langsomt, og resultatet glider roligt på plads. Det eneste "show".
+    if (fresh.glow.length) {
+      gsap.fromTo(fresh.glow, { opacity: 0, scale: 0.85 }, { opacity: 0.9, scale: 1, duration: 1.1, ease: 'power2.out', clearProps: 'transform' });
+    }
+    if (fresh.score.length) {
+      gsap.fromTo(fresh.score, { y: 8, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, delay: 0.08, ease: 'power2.out', clearProps: 'transform,opacity' });
+    }
     if (fresh.bar.length) {
       // Hjemmeholdets bjælke vokser fra midten mod venstre, udeholdets mod højre.
       fresh.bar.forEach((el) => { el.style.transformOrigin = el.parentElement.classList.contains('h') ? 'right center' : 'left center'; });
       gsap.fromTo(fresh.bar, { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: 'power3.out', stagger: 0.03, delay: 0.1, clearProps: 'transform' });
     }
     if (fresh.pill.length) {
-      gsap.fromTo(fresh.pill, { scale: 0.3, opacity: 0 },
-        { scale: 1, opacity: 1, duration: 0.45, ease: 'back.out(2.2)', stagger: 0.035, delay: 0.15, clearProps: 'transform,opacity' });
+      gsap.fromTo(fresh.pill, { y: 4, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.3, ease: 'power2.out', stagger: 0.025, delay: 0.1, clearProps: 'transform,opacity' });
     }
     if (fresh.h2h.length) {
       fresh.h2h.forEach((el) => { el.style.transformOrigin = 'left center'; });
