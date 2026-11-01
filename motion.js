@@ -138,8 +138,9 @@ const Motion = (() => {
     const main = document.querySelector('#app main');
     const head = document.querySelector('#app > header');
     if (main) gsap.fromTo(main, { x: dir * 46, opacity: 0 }, { x: 0, opacity: 1, duration: 0.42, ease: 'power3.out', clearProps: 'transform,opacity' });
-    if (head) gsap.fromTo(head.querySelectorAll('.row, .mhead, .chips, .days, .utabs'), { opacity: 0, x: dir * 18 },
-      { opacity: 1, x: 0, duration: 0.4, ease: 'power3.out', stagger: 0.03, clearProps: 'transform,opacity' });
+    // Toppen (Fodbold/MMA, dage, faner) står stille; kun kamphovedet på en kampside glider let ind.
+    const mhead = head?.querySelector('.mhead');
+    if (mhead) gsap.fromTo(mhead, { opacity: 0, x: dir * 18 }, { opacity: 1, x: 0, duration: 0.4, ease: 'power3.out', clearProps: 'transform,opacity' });
   }
 
   /** Kaldes efter hver tegning. key beskriver "hvad man kigger på" (side, dag, fane …). */

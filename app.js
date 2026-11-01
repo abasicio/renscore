@@ -3,6 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
+const APP_VERSION = 11; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -661,8 +662,11 @@ function footballBody() {
   if (f.loading) return skeleton(3);
   if (f.failed) return emptyBox('📡', 'Ingen forbindelse', 'Tryk på ↻ for at prøve igen.');
   if (!days.length) {
-    return ui.liveOnly ? emptyBox('⚽', 'Ingen live-kampe', 'Der spilles ikke lige nu i dine ligaer.')
-      : emptyBox('⚽', 'Ingen kampe', 'Der er ingen kampe i dine ligaer denne dag.');
+    if (!ui.liveOnly) return emptyBox('⚽', 'Ingen kampe', 'Der er ingen kampe i dine ligaer denne dag.');
+    // Intet live lige nu: vis resten af dagens kampe i stedet for en tom side.
+    const later = f.days.map((x) => ({ ...x, events: x.events.filter((e) => !isDone(e)) })).filter((x) => x.events.length);
+    return `<section class="card" data-k="nolive">${emptyBox('⚽', 'Ingen kampe live lige nu', later.length ? 'Her er resten af dagens kampe.' : 'Og der er ikke flere kampe i dag.')}</section>`
+      + later.map((x) => leagueCard(x.league.name, x.league.country, x.league.flag, x.events.map((e) => [x.league.id, e]))).join('');
   }
   const favRows = days.flatMap((x) => x.events
     .filter((e) => (e.competitions?.[0]?.competitors || []).some((c) => isFav(c.team?.id)))
@@ -1210,6 +1214,7 @@ function viewSettings() {
     ? `<button class="danger" data-action="fav-clear">Fjern alle fulgte hold (${prefs.favorites.length})</button>`
     : '<div class="note">Tilføj hold under Favoritter, eller tryk på stjernen inde i en kamp.</div>'}</section>`;
   html += '<section class="card"><div class="note">Ingen reklamer, ingen notifikationer, ingen konto. Data fra ESPN. Dine valg gemmes kun på denne telefon.</div></section>';
+  html += `<p class="note" style="text-align:center">RenScore version ${APP_VERSION}</p>`;
   return html + '</main>';
 }
 
@@ -1226,7 +1231,12 @@ const actions = {
   refresh() { load(); },
   day(el) { const d = new Date(Number(el.dataset.v)); Motion.hint = { dir: Math.sign(d - ui.day) }; setDay(d); render(); load(); },
   ufc(el) { Motion.hint = { dir: el.dataset.v === 'latest' ? 1 : -1 }; ui.ufcMode = el.dataset.v; render(); load(); },
-  back() { if (history.length > 1) history.back(); else location.hash = '#/'; },
+  back() {
+    const from = location.hash;
+    if (history.length > 1) history.back(); else location.hash = '#/';
+    // Sikkerhedsnet: er vi der stadig lidt efter (fx åbnet direkte på en kamp), så gå til listen.
+    setTimeout(() => { if (location.hash === from) location.replace('#/'); }, 400);
+  },
   dtab(el) {
     const tabs = [...app.querySelectorAll('.utabs [data-v]')].map((b) => b.dataset.v);
     Motion.hint = { dir: Math.sign(tabs.indexOf(el.dataset.v) - tabs.indexOf(ui.detailTab)) };
