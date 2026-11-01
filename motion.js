@@ -20,7 +20,7 @@ const Motion = (() => {
 
   // Ting der "dukker op" og hvordan de animeres. key() skal være stabil mellem tegninger.
   const GROUPS = {
-    block: { sel: 'main > *', key: (el, i) => el.dataset.k || el.querySelector('.card-head .t')?.textContent || `${el.className}#${i}` },
+    block: { sel: '#app main > *', key: (el, i) => el.dataset.k || el.querySelector('.card-head .t')?.textContent || `${el.className}#${i}` },
     crest: { sel: '.mhead .crest', key: (el, i) => i },
     glow: { sel: '.mtop .glow', key: () => 'glow' },
     score: { sel: '.mhead .mid', key: () => 'mid' },
@@ -246,17 +246,19 @@ const Motion = (() => {
     const x0 = gsap.getProperty(main, 'x') || 0;
     const r = main.getBoundingClientRect();
     document.querySelectorAll('body > .swipe-ghost').forEach((g) => g.remove());
-    const ghost = main.cloneNode(true);
+    // Det gamle indhold selv glider ud – billederne er allerede tegnet, så intet blinker.
+    // En tom pladsholder i samme højde holder siden stille, indtil det nye er tegnet.
+    const ghost = main;
+    const holder = document.createElement('main');
+    holder.style.height = main.offsetHeight + 'px';
+    main.replaceWith(holder);
     ghost.classList.add('swipe-ghost');
-    // Kun det, der kan ses, skal med (en dag kan have 60+ kampe).
-    [...main.children].forEach((child, i) => { if (child.getBoundingClientRect().top > window.innerHeight) ghost.children[i]?.remove(); });
     Object.assign(ghost.style, {
       position: 'fixed', top: r.top + 'px', left: (r.left - x0) + 'px', width: r.width + 'px',
       height: Math.max(0, window.innerHeight - r.top) + 'px', overflow: 'hidden', margin: '0', zIndex: '5', pointerEvents: 'none',
     });
     gsap.set(ghost, { x: x0 });
     document.body.appendChild(ghost);
-    gsap.set(main, { opacity: 0 });
     // Varighed ud fra den resterende vej og fingerens fart, så farten fortsætter uden hop.
     const remaining = W - Math.abs(x0);
     const speed = Math.max(Math.abs(velocity), 1.1); // px/ms
@@ -267,8 +269,13 @@ const Motion = (() => {
     run();
     gsap.to(ghost, { x: -dir * W, duration, ease, onComplete: () => ghost.remove() });
     const next = document.querySelector('#app main');
-    if (!next || next === main || !slideIn) return;
+    if (!next || next === holder || !slideIn) return;
     gsap.fromTo(next, { x: x0 + dir * W, opacity: 1 }, { x: 0, duration, ease, clearProps: 'transform,opacity' });
+    // Sikkerhedsnet: uanset hvad står alt på plads kort efter (fx hvis telefonen springer billeder over).
+    setTimeout(() => {
+      ghost.remove();
+      if (next.isConnected && gsap.getProperty(next, 'x') !== 0) { gsap.killTweensOf(next); gsap.set(next, { clearProps: 'transform,opacity' }); }
+    }, (duration + 0.3) * 1000);
   }
 
   // ---------- Træk for at opdatere ----------

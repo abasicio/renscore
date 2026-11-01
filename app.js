@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 25; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
+const APP_VERSION = 27; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -191,7 +191,7 @@ function rowStatus(e) {
 const sized = (url, w, h = w) => (/^https:\/\/a\.espncdn\.com\/i\//.test(url || '')
   ? `https://a.espncdn.com/combiner/i?img=${url.slice('https://a.espncdn.com'.length)}&w=${w}&h=${h}` : url);
 const logoImg = (url, cls = 'logo', px = cls === '' ? 160 : 80) =>
-  (url ? `<img class="${cls}" src="${esc(sized(url, px))}" alt="" loading="lazy" decoding="async">` : `<span class="logo-ph"></span>`);
+  (url ? `<img class="${cls}" src="${esc(sized(url, px))}" alt="">` : `<span class="logo-ph"></span>`);
 
 // ---------- Tilstand ----------
 
@@ -252,12 +252,28 @@ function storeDay(key, days) {
 }
 
 /** Henter alle ligaer for en dag. onPart kaldes, hver gang en liga er hentet. */
+// ESPN sender hver ligas kampdage med i svaret ("calendar"). Dem husker vi i 2 døgn, så vi kun
+// spørger de ligaer, der faktisk spiller den dag. Pokaler/UEFA har en anden slags kalender og spørges altid.
+const calendars = storage.get('cal', {}); // ligaId -> { at, days: ["20261101", …] }
+function rememberCalendar(leagueId, r) {
+  const l = r?.leagues?.[0], cal = l?.calendar;
+  if (l?.calendarType !== 'day' || !l.calendarIsWhitelist || !Array.isArray(cal) || typeof cal[0] !== 'string') return;
+  calendars[leagueId] = { at: Date.now(), days: cal.map((d) => d.slice(0, 10).replace(/-/g, '')) };
+  clearTimeout(rememberCalendar.t);
+  rememberCalendar.t = setTimeout(() => storage.set('cal', calendars), 500);
+}
+const playsOn = (leagueId, day) => {
+  const c = calendars[leagueId];
+  return !c || Date.now() - c.at > 2 * 864e5 || c.days.includes(apiDay(day));
+};
+
 let lastFetchError = '';
 async function fetchDay(day, leagues, onPart, opts) {
   const parts = new Array(leagues.length);
-  await Promise.all(leagues.map((l, i) =>
-    getJSON(`${API}/soccer/${l.id}/scoreboard?dates=${apiDay(day)}`, opts)
-      .then((r) => { parts[i] = (r.events || []).sort((a, b) => parseDate(a.date) - parseDate(b.date)); })
+  await Promise.all(leagues.map((l, i) => (!playsOn(l.id, day)
+    ? Promise.resolve().then(() => { parts[i] = []; })
+    : getJSON(`${API}/soccer/${l.id}/scoreboard?dates=${apiDay(day)}`, opts)
+      .then((r) => { rememberCalendar(l.id, r); parts[i] = (r.events || []).sort((a, b) => parseDate(a.date) - parseDate(b.date)); }))
       .catch((err) => { parts[i] = null; lastFetchError = `${err?.name || 'Fejl'}: ${err?.message || err}`; })
       .finally(() => onPart?.(parts))));
   return parts;
@@ -360,8 +376,8 @@ async function warmLogos(days, signal) {
   for (let i = 0; i < urls.length && !signal?.aborted; i += 6) {
     await Promise.all(urls.slice(i, i + 6).map((u) => new Promise((done) => {
       const img = new Image();
-      img.onload = img.onerror = done;
       img.src = u;
+      (img.decode ? img.decode() : new Promise((r) => { img.onload = r; })).catch(() => {}).then(done);
     })));
   }
 }
@@ -518,7 +534,13 @@ const tv = { days: {}, loading: {} }; // "2026-10-21" -> [{ch, start, home, away
 const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
 /** Gør holdnavne sammenlignelige: små bogstaver, uden accenter og uden "FC", "IF" osv. */
+const normCache = new Map();
 function normTeam(s) {
+  let v = normCache.get(s);
+  if (v === undefined) { v = normTeamRaw(s); normCache.set(s, v); }
+  return v;
+}
+function normTeamRaw(s) {
   return (s || '').toLowerCase()
     .replace(/ø/g, 'o').replace(/æ/g, 'ae').replace(/å/g, 'a').replace(/ß/g, 'ss')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -665,6 +687,7 @@ function viewKey(r) {
 }
 
 let renderPending = false;
+let lastHtml = '';
 let renderPendingTimer = null;
 function render() {
   // Midt i et swipe/træk venter vi; ellers mister man fingeren, når data kommer ind.
@@ -682,10 +705,21 @@ function render() {
   document.querySelectorAll('#tabbar a').forEach((a) => {
     a.classList.toggle('sel', a.dataset.tab === (r.name === 'match' ? 'scores' : r.name));
   });
-  if (r.name === 'scores') app.innerHTML = viewScores();
-  else if (r.name === 'match') app.innerHTML = viewMatch(r.league, r.id);
-  else if (r.name === 'fav') app.innerHTML = viewFavorites();
-  else app.innerHTML = viewSettings();
+  const html = r.name === 'scores' ? viewScores() : r.name === 'match' ? viewMatch(r.league, r.id)
+    : r.name === 'fav' ? viewFavorites() : viewSettings();
+  if (html === lastHtml) return; // intet nyt at vise (fx en opdatering uden ændringer)
+  lastHtml = html;
+  // Gem de billeder, der allerede er tegnet, og sæt dem ind igen bagefter: et nyt <img> med samme
+  // adresse blinker kort i Safari, mens det tegnes; det gamle står der bare.
+  const pool = new Map();
+  app.querySelectorAll('img').forEach((img) => { const k = img.getAttribute('src'); (pool.get(k) || pool.set(k, []).get(k)).push(img); });
+  app.innerHTML = html;
+  if (pool.size) {
+    app.querySelectorAll('img').forEach((img) => {
+      const old = pool.get(img.getAttribute('src'))?.pop();
+      if (old && old.complete) { old.className = img.className; img.replaceWith(old); }
+    });
+  }
   centerSelectedDay();
   if (before) Motion.after(before, viewKey(r), r.name);
 }
