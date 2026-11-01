@@ -1,5 +1,5 @@
 // Gemmer selve app'en, så den åbner med det samme. Kampdata hentes altid frisk.
-const CACHE = 'renscore-v7';
+const CACHE = 'renscore-v8';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

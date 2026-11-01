@@ -582,7 +582,7 @@ function centerSelectedDay() {
   lastCenteredDay = key;
 }
 
-window.addEventListener('hashchange', () => {
+function routeChanged() {
   if (sheet) { sheet.remove(); sheet = null; document.body.style.overflow = ''; }
   window.scrollTo(0, 0);
   ui.detailTab = 'details';
@@ -590,7 +590,8 @@ window.addEventListener('hashchange', () => {
   lastCenteredDay = null;
   render();
   load();
-});
+}
+window.addEventListener('hashchange', routeChanged);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
 
 // ---------- Visning: Kampe ----------
@@ -1211,6 +1212,95 @@ document.addEventListener('click', (e) => {
   e.preventDefault();
   actions[el.dataset.action]?.(el, e);
 });
+
+// ---------- Swipe ----------
+
+const MAIN_TABS = ['#/', '#/fav', '#/settings'];
+
+/** Hvad et swipe gør her. dir = 1 er swipe mod venstre (frem), -1 mod højre (tilbage). null = intet den vej. */
+function swipeAction(dir, edge) {
+  const r = route();
+  if (r.name === 'match') {
+    if (edge && dir === -1) return { run: actions.back, slide: false };
+    const tabs = [...app.querySelectorAll('.utabs [data-v]')].map((b) => b.dataset.v);
+    const i = tabs.indexOf(ui.detailTab) + dir;
+    if (i < 0) return { run: actions.back, slide: false }; // højre på første fane = tilbage til listen
+    if (i >= tabs.length) return null;
+    return { run: () => { ui.detailTab = tabs[i]; render(); } };
+  }
+  if (r.name === 'scores' && ui.sport === 'football') {
+    const day = addDays(ui.day, dir);
+    if (Math.abs(Math.round((day - startOfDay(new Date())) / 864e5)) > 7) return null;
+    return { run: () => { ui.day = day; render(); load(); } };
+  }
+  if (r.name === 'scores') {
+    const modes = ['next', 'latest'], i = modes.indexOf(ui.ufcMode) + dir;
+    return modes[i] ? { run: () => { ui.ufcMode = modes[i]; render(); load(); } } : null;
+  }
+  const i = MAIN_TABS.indexOf(r.name === 'fav' ? '#/fav' : '#/settings') + dir;
+  if (!MAIN_TABS[i]) return null;
+  return { run: () => { history.pushState(null, '', MAIN_TABS[i]); routeChanged(); } };
+}
+
+let swipe = null;
+const resetMain = (main) => { main.style.transition = 'transform .22s ease, opacity .22s'; main.style.transform = ''; main.style.opacity = ''; };
+
+app.addEventListener('touchstart', (e) => {
+  swipe = null;
+  if (sheet || e.touches.length !== 1) return;
+  const t = e.touches[0];
+  // Vandrette lister (dage, faner) scroller selv; i Safari er kanten Safaris egen "tilbage".
+  if (e.target.closest('.days, .utabs, .chips, .sidepick, input')) return;
+  const edge = t.clientX < 24;
+  if (edge && !navigator.standalone) return;
+  const main = app.querySelector('main');
+  if (main) swipe = { x: t.clientX, y: t.clientY, t: Date.now(), edge, main, lock: null, dx: 0 };
+}, { passive: true });
+
+app.addEventListener('touchmove', (e) => {
+  if (!swipe) return;
+  const t = e.touches[0], dx = t.clientX - swipe.x, dy = t.clientY - swipe.y;
+  if (!swipe.lock) {
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+    if (Math.abs(dx) < Math.abs(dy) * 1.2) { swipe = null; return; } // lodret: almindelig scroll
+    swipe.lock = true;
+    swipe.next = { 1: swipeAction(1, swipe.edge), '-1': swipeAction(-1, swipe.edge) };
+  }
+  e.preventDefault();
+  swipe.dx = dx;
+  const pull = swipe.next[dx < 0 ? 1 : -1] ? dx * 0.6 : dx * 0.15; // modstand, når der ikke er mere
+  swipe.main.style.transition = 'none';
+  swipe.main.style.transform = `translateX(${pull}px)`;
+  swipe.main.style.opacity = String(1 - Math.min(Math.abs(pull) / 500, 0.35));
+}, { passive: false });
+
+function endSwipe() {
+  const s = swipe;
+  swipe = null;
+  if (!s?.lock) return;
+  const dir = s.dx < 0 ? 1 : -1;
+  const fast = Math.abs(s.dx) > 35 && Date.now() - s.t < 280;
+  const act = (Math.abs(s.dx) > 70 || fast) ? s.next[dir] : null;
+  if (!act) return resetMain(s.main);
+  s.main.style.transition = 'transform .13s ease-in, opacity .13s';
+  s.main.style.transform = `translateX(${-dir * 40}%)`;
+  s.main.style.opacity = '0';
+  setTimeout(() => {
+    act.run();
+    const next = app.querySelector('main');
+    if (!next || next === s.main || act.slide === false) { if (next) resetMain(next); return; }
+    next.style.transition = 'none';
+    next.style.transform = `translateX(${dir * 30}%)`;
+    next.style.opacity = '0';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      next.style.transition = 'transform .2s ease-out, opacity .2s';
+      next.style.transform = '';
+      next.style.opacity = '';
+    }));
+  }, 120);
+}
+app.addEventListener('touchend', endSwipe);
+app.addEventListener('touchcancel', endSwipe);
 
 // ---------- Start ----------
 

@@ -293,3 +293,7 @@ main { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 12px;
 .cm.goal { background: color-mix(in srgb, var(--win) 12%, transparent); }
 .cm.goal b { font-size: 15px; }
 .note { text-align: center; font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+
+/* Swipe: indholdet glider til siden uden at give vandret scroll */
+#app { overflow-x: clip; }
+main { touch-action: pan-y pinch-zoom; will-change: transform; }
