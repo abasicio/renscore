@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 13; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
+const APP_VERSION = 14; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -1384,6 +1384,10 @@ app.addEventListener('touchmove', (e) => {
     } else { swipe = null; return; } // almindelig lodret scroll
   }
   e.preventDefault();
+  // Fingerens fart (px/ms), så siden kan fortsætte med samme fart, når man slipper.
+  const now = performance.now();
+  if (swipe.lastT) swipe.vx = 0.7 * ((dx - swipe.dx) / Math.max(1, now - swipe.lastT)) + 0.3 * (swipe.vx || 0);
+  swipe.lastT = now;
   swipe.dx = dx;
   swipe.dy = dy;
   if (swipe.lock === 'x') Motion.drag(swipe.main, dx, !!swipe.next[dx < 0 ? 1 : -1], swipeIndicator());
@@ -1397,10 +1401,12 @@ function endSwipe() {
   if (s.lock === 'pull') { Motion.release(s.main, s.ready, () => load()); return; }
   const flush = () => { if (renderPending) render(); };
   const dir = s.dx < 0 ? 1 : -1;
-  const fast = Math.abs(s.dx) > 35 && Date.now() - s.t < 280;
-  const act = (Math.abs(s.dx) > 70 || fast) ? s.next[dir] : null;
+  const fast = Math.abs(s.dx) > 35 && (Date.now() - s.t < 280 || Math.abs(s.vx || 0) > 0.5);
+  // Kastede man fingeren tilbage mod udgangspunktet lige før slip, bliver man, hvor man er.
+  const flungBack = Math.abs(s.vx || 0) > 0.3 && Math.sign(s.vx) !== Math.sign(s.dx);
+  const act = !flungBack && (Math.abs(s.dx) > 70 || fast) ? s.next[dir] : null;
   if (!act) { Motion.settle(s.main); flush(); return; }
-  Motion.commit(s.main, dir, act.run, act.slide !== false);
+  Motion.commit(s.main, dir, act.run, act.slide !== false, s.vx);
   flush();
 }
 app.addEventListener('touchend', endSwipe);

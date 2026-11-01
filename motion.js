@@ -189,6 +189,7 @@ const Motion = (() => {
 
   /** Fingeren rører skærmen: stop alt, der stadig glider, så det følger fingeren fra første øjeblik. */
   function grab(main, indKey) {
+    document.querySelectorAll('body > .swipe-ghost').forEach((g) => g.remove());
     if (!gsap) return;
     gsap.killTweensOf(main);
     gsap.killTweensOf(main.querySelectorAll('*'));
@@ -198,10 +199,10 @@ const Motion = (() => {
 
   /** Mens man swiper: indholdet følger fingeren, og markøren glider mod nabo-dagen/-fanen. */
   function drag(main, dx, canGo, indKey) {
-    const pull = canGo ? dx * 0.65 : dx * 0.14; // modstand, når der ikke er mere den vej
-    const fade = 1 - Math.min(Math.abs(pull) / 520, 0.35);
-    if (on()) gsap.set(main, { x: pull, opacity: fade });
-    else { main.style.transform = `translateX(${pull}px)`; main.style.opacity = fade; }
+    // Siden sidder fast på fingeren (1:1); er der ikke mere den vej, giver den kun lidt efter.
+    const pull = canGo ? dx : dx * 0.14;
+    if (on()) gsap.set(main, { x: pull });
+    else main.style.transform = `translateX(${pull}px)`;
     if (!canGo) return;
     const progress = Math.min(Math.abs(dx) / (window.innerWidth * 0.6), 1);
     const dir = dx < 0 ? 1 : -1;
@@ -218,35 +219,47 @@ const Motion = (() => {
   /** Slip uden at skifte: alt fjedrer tilbage. */
   function settle(main) {
     if (!on()) { main.style.transform = ''; main.style.opacity = ''; return; }
-    gsap.to(main, { x: 0, opacity: 1, duration: 0.5, ease: 'back.out(1.4)', clearProps: 'transform,opacity' });
+    gsap.to(main, { x: 0, duration: 0.3, ease: 'power2.out', clearProps: 'transform' });
     document.querySelectorAll('[data-ind]').forEach((box) => {
       const ind = box.querySelector(':scope > .ind'), r = indRect(box);
-      if (ind && r) gsap.to(ind, { x: r.x, width: r.w, duration: 0.4, ease: 'power3.out' });
+      if (ind && r) gsap.to(ind, { x: r.x, width: r.w, duration: 0.3, ease: 'power2.out' });
     });
   }
 
-  /** Slip og skift: en kopi af det gamle glider ud, mens det nye glider ind – på samme tid. */
-  function commit(main, dir, run, slideIn = true) {
+  /**
+   * Slip og skift – som at bladre i Fotos: den gamle side fortsætter i fingerens retning og fart,
+   * og den nye ligger lige ved siden af og følger med. Én sammenhængende bevægelse, ingen fade.
+   * velocity er fingerens fart i px/ms ved slip.
+   */
+  function commit(main, dir, run, slideIn = true, velocity = 0) {
     if (!on()) { run(); return; }
+    const W = window.innerWidth;
+    const x0 = gsap.getProperty(main, 'x') || 0;
     const r = main.getBoundingClientRect();
+    document.querySelectorAll('body > .swipe-ghost').forEach((g) => g.remove());
     const ghost = main.cloneNode(true);
+    ghost.classList.add('swipe-ghost');
     // Kun det, der kan ses, skal med (en dag kan have 60+ kampe).
     [...main.children].forEach((child, i) => { if (child.getBoundingClientRect().top > window.innerHeight) ghost.children[i]?.remove(); });
     Object.assign(ghost.style, {
-      position: 'fixed', top: r.top + 'px', left: r.left + 'px', width: r.width + 'px',
+      position: 'fixed', top: r.top + 'px', left: (r.left - x0) + 'px', width: r.width + 'px',
       height: Math.max(0, window.innerHeight - r.top) + 'px', overflow: 'hidden', margin: '0', zIndex: '5', pointerEvents: 'none',
     });
-    gsap.set(ghost, { x: gsap.getProperty(main, 'x'), opacity: gsap.getProperty(main, 'opacity') });
+    gsap.set(ghost, { x: x0 });
     document.body.appendChild(ghost);
     gsap.set(main, { opacity: 0 });
-    // Går man tilbage, tegnes den nye side først lidt senere (popstate); så glider den ind som en almindelig side.
+    // Varighed ud fra den resterende vej og fingerens fart, så farten fortsætter uden hop.
+    const remaining = W - Math.abs(x0);
+    const speed = Math.max(Math.abs(velocity), 1.1); // px/ms
+    const duration = Math.min(0.42, Math.max(0.26, (remaining / speed / 1000) * 2));
+    const ease = 'power2.out'; // starter hurtigt (som fingeren) og lander blødt
+    // Går man tilbage, tegnes den nye side først lidt senere (popstate); så kommer den ind som en almindelig side.
     hint = slideIn ? { dir, fromSwipe: true } : { dir };
     run();
-    gsap.to(ghost, { x: gsap.getProperty(ghost, 'x') - dir * 40, opacity: 0, duration: 0.16, ease: 'power1.out', onComplete: () => ghost.remove() });
+    gsap.to(ghost, { x: -dir * W, duration, ease, onComplete: () => ghost.remove() });
     const next = document.querySelector('#app main');
     if (!next || next === main || !slideIn) return;
-    gsap.fromTo(next, { x: dir * 24, opacity: 0 },
-      { x: 0, opacity: 1, duration: 0.22, delay: 0.04, ease: 'power2.out', clearProps: 'transform,opacity' });
+    gsap.fromTo(next, { x: x0 + dir * W, opacity: 1 }, { x: 0, duration, ease, clearProps: 'transform,opacity' });
   }
 
   // ---------- Træk for at opdatere ----------
