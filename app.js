@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 12; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
+const APP_VERSION = 13; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -120,11 +120,12 @@ const fmt = {
   long: (d) => (d ? d.toLocaleString('da-DK', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : ''),
 };
 
-async function getJSON(url) {
+async function getJSON(url, { priority = 'auto', signal } = {}) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 15000);
+  signal?.addEventListener('abort', () => ctl.abort());
   try {
-    const r = await fetch(url, { signal: ctl.signal, cache: 'no-store' });
+    const r = await fetch(url, { signal: ctl.signal, cache: 'no-store', priority });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
   } finally { clearTimeout(timer); }
@@ -220,10 +221,10 @@ function storeDay(key, days) {
 }
 
 /** Henter alle ligaer for en dag. onPart kaldes, hver gang en liga er hentet. */
-async function fetchDay(day, leagues, onPart) {
+async function fetchDay(day, leagues, onPart, opts) {
   const parts = new Array(leagues.length);
   await Promise.all(leagues.map((l, i) =>
-    getJSON(`${API}/soccer/${l.id}/scoreboard?dates=${apiDay(day)}`)
+    getJSON(`${API}/soccer/${l.id}/scoreboard?dates=${apiDay(day)}`, opts)
       .then((r) => { parts[i] = (r.events || []).sort((a, b) => parseDate(a.date) - parseDate(b.date)); })
       .catch(() => { parts[i] = null; })
       .finally(() => onPart?.(parts))));
@@ -255,7 +256,6 @@ async function loadFootball() {
   const leagues = LEAGUES.filter((l) => prefs.enabled.has(l.id));
   const key = footballKey(ui.day);
   const d = data.football;
-  prefetchDays(leagues);
   if (d.key !== key) {
     // Vis det, vi allerede har, med det samme. Friske tal kommer bagefter.
     const known = dayCache.get(key) || storedDay(key);
@@ -277,6 +277,7 @@ async function loadFootball() {
   d.days.forEach((x) => x.events.forEach((e) => eventCache.set(`${x.league.id}:${e.id}`, e)));
   d.loading = false;
   if (!parts.every((r) => r === null)) { dayCache.set(key, d.days); storeDay(key, d.days); }
+  prefetchDays(leagues);
   render();
   scheduleRefresh(d.days.some((x) => x.events.some(isLive)));
 }
@@ -287,16 +288,30 @@ function prefetchDays(leagues) {
   const ids = leagues.map((l) => l.id).join(',');
   if (prefetched === apiDay(ui.day) + ids) return;
   prefetched = apiDay(ui.day) + ids;
-  const run = () => [-1, 1, -2, 2].forEach(async (n) => {
-    const day = addDays(ui.day, n), key = apiDay(day) + '|' + ids;
-    if (dayCache.has(key)) return;
-    const parts = await fetchDay(day, leagues);
-    if (parts.every((r) => r === null)) return;
-    const days = leagues.map((l, i) => ({ league: l, events: parts[i] || [] })).filter((x) => x.events.length);
-    days.forEach((x) => x.events.forEach((e) => eventCache.set(`${x.league.id}:${e.id}`, e)));
-    dayCache.set(key, days);
-  });
-  setTimeout(run, 300); // lige efter den valgte dag er sendt af sted
+  prefetchCtl?.abort();
+  const ctl = prefetchCtl = new AbortController();
+  const center = ui.day;
+  // Én dag ad gangen og med lav prioritet, så det aldrig står i vejen for det, man kigger på.
+  setTimeout(async () => {
+    for (const n of [1, -1, 2, -2]) {
+      if (ctl.signal.aborted) return;
+      const day = addDays(center, n), key = apiDay(day) + '|' + ids;
+      if (dayCache.has(key)) continue;
+      const parts = await fetchDay(day, leagues, null, { priority: 'low', signal: ctl.signal });
+      if (ctl.signal.aborted || parts.every((r) => r === null)) continue;
+      const days = leagues.map((l, i) => ({ league: l, events: parts[i] || [] })).filter((x) => x.events.length);
+      days.forEach((x) => x.events.forEach((e) => eventCache.set(`${x.league.id}:${e.id}`, e)));
+      dayCache.set(key, days);
+      warmLogos(days);
+    }
+  }, 400);
+}
+let prefetchCtl = null;
+
+/** Henter og afkoder logoerne på forhånd, så de står klar, når man swiper til dagen. */
+function warmLogos(days) {
+  const urls = new Set(days.flatMap((x) => x.events.flatMap((e) => (e.competitions?.[0]?.competitors || []).map((c) => sized(logoOf(c.team), 80)))));
+  urls.forEach((u) => { if (!u) return; const img = new Image(); img.decoding = 'async'; img.src = u; img.decode?.().catch(() => {}); });
 }
 
 async function loadUfc() {
@@ -331,17 +346,27 @@ async function loadUfc() {
 
 async function loadSummary(leagueId, id) {
   const key = `${leagueId}:${id}`;
+  prefetchCtl?.abort(); // kampen går forud for forhåndshentning af dage
+  prefetched = '';
   const cached = eventCache.get(key);
   loadStreaming();
   if (cached?.date) loadTv(parseDate(cached.date));
   if (data.summary.key !== key) { data.summary = { key, value: null }; }
   try {
-    const value = await getJSON(`${API}/soccer/${leagueId}/summary?event=${id}`);
+    const value = await getJSON(`${API}/soccer/${leagueId}/summary?event=${id}`, { priority: 'high' });
     if (data.summary.key !== key) return;
     data.summary.value = value;
     const d = value?.header?.competitions?.[0]?.date;
     if (d) loadTv(parseDate(d));
-  } catch { /* behold det vi har */ }
+  } catch {
+    // Fejlede det, før vi havde noget, så prøv igen om lidt i stedet for om 5 minutter.
+    if (data.summary.key === key && !data.summary.value) {
+      render();
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => load(), 4000);
+      return;
+    }
+  }
   render();
   const s = data.summary.value?.header?.competitions?.[0]?.status;
   scheduleRefresh(s?.type?.state === 'in');
@@ -987,7 +1012,8 @@ function viewMatch(leagueId, id) {
         ${w.stream.map((s) => `<div class="sep"></div><div class="tvrow"><b>${esc(s)}</b><span>Streaming</span></div>`).join('')}</section>`;
     }
     const extra = formCard(sum, home, away) + h2hCard(sum, home, away, colors);
-    if (timeline.length || !extra) html += detailsTab(timeline, home, st, event);
+    if (!sum) html += skeleton(2); // kampdata er på vej
+    else if (timeline.length || !extra) html += detailsTab(timeline, home, st, event);
     html += extra;
   }
   else if (ui.detailTab === 'comments') html += commentaryTab(commentary);

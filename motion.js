@@ -70,7 +70,7 @@ const Motion = (() => {
       gsap.killTweensOf(ind);
       if (animate && from && (from.x !== to.x || from.w !== to.w)) {
         gsap.fromTo(ind, { x: from.x, width: from.w, ...(isLine ? {} : { y: to.y, height: to.h }) },
-          { ...target, duration: 0.42, ease: 'power3.out' });
+          { ...target, duration: 0.25, ease: 'power2.out' });
       } else {
         gsap.set(ind, target);
       }
@@ -89,12 +89,11 @@ const Motion = (() => {
 
     const blocks = blocksToo ? fresh.block.filter(inView) : [];
     if (blocks.length) {
-      gsap.fromTo(blocks, { y: 18, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.5, ease: 'power3.out', stagger: 0.045, clearProps: 'transform,opacity' });
+      gsap.fromTo(blocks, { opacity: 0 }, { opacity: 1, duration: 0.25, ease: 'power1.out', stagger: 0.03, clearProps: 'opacity' });
     }
     if (fresh.crest.length) {
-      gsap.fromTo(fresh.crest, { scale: 0.55, opacity: 0 },
-        { scale: 1, opacity: 1, duration: 0.6, ease: 'back.out(1.8)', stagger: 0.07, clearProps: 'transform,opacity' });
+      gsap.fromTo(fresh.crest, { scale: 0.9, opacity: 0 },
+        { scale: 1, opacity: 1, duration: 0.3, ease: 'power2.out', stagger: 0.05, clearProps: 'transform,opacity' });
     }
     if (fresh.bar.length) {
       // Hjemmeholdets bjælke vokser fra midten mod venstre, udeholdets mod højre.
@@ -111,8 +110,7 @@ const Motion = (() => {
     }
     if (fresh.player.length) {
       // Fra målmanden og frem, række for række.
-      gsap.fromTo([...fresh.player].reverse(), { y: -14, opacity: 0, scale: 0.8 },
-        { y: 0, opacity: 1, scale: 1, duration: 0.45, ease: 'back.out(1.6)', stagger: 0.03, clearProps: 'transform,opacity' });
+      gsap.fromTo([...fresh.player].reverse(), { opacity: 0 }, { opacity: 1, duration: 0.25, stagger: 0.015, clearProps: 'opacity' });
     }
   }
 
@@ -137,10 +135,10 @@ const Motion = (() => {
   function slidePage(dir) {
     const main = document.querySelector('#app main');
     const head = document.querySelector('#app > header');
-    if (main) gsap.fromTo(main, { x: dir * 46, opacity: 0 }, { x: 0, opacity: 1, duration: 0.42, ease: 'power3.out', clearProps: 'transform,opacity' });
+    if (main) gsap.fromTo(main, { x: dir * 20, opacity: 0 }, { x: 0, opacity: 1, duration: 0.24, ease: 'power2.out', clearProps: 'transform,opacity' });
     // Toppen (Fodbold/MMA, dage, faner) står stille; kun kamphovedet på en kampside glider let ind.
     const mhead = head?.querySelector('.mhead');
-    if (mhead) gsap.fromTo(mhead, { opacity: 0, x: dir * 18 }, { opacity: 1, x: 0, duration: 0.4, ease: 'power3.out', clearProps: 'transform,opacity' });
+    if (mhead) gsap.fromTo(mhead, { opacity: 0 }, { opacity: 1, duration: 0.24, ease: 'power1.out', clearProps: 'opacity' });
   }
 
   /** Kaldes efter hver tegning. key beskriver "hvad man kigger på" (side, dag, fane …). */
@@ -157,7 +155,7 @@ const Motion = (() => {
     if (strip && before.daysScroll != null) {
       const target = strip.scrollLeft;
       if (!keyChanged || routeChanged) strip.scrollLeft = before.daysScroll;
-      else if (on()) { strip.scrollLeft = before.daysScroll; gsap.to(strip, { scrollLeft: target, duration: 0.45, ease: 'power3.out' }); }
+      else if (on()) { strip.scrollLeft = before.daysScroll; gsap.to(strip, { scrollLeft: target, duration: 0.25, ease: 'power2.out' }); }
     }
 
     if (on()) {
@@ -170,7 +168,7 @@ const Motion = (() => {
       } else if (keyChanged) {
         if (h?.dir && !h.fromSwipe) {
           const main = document.querySelector('#app main');
-          if (main) gsap.fromTo(main, { x: h.dir * 28, opacity: 0 }, { x: 0, opacity: 1, duration: 0.36, ease: 'power3.out', clearProps: 'transform,opacity' });
+          if (main) gsap.fromTo(main, { x: h.dir * 16, opacity: 0 }, { x: 0, opacity: 1, duration: 0.2, ease: 'power2.out', clearProps: 'transform,opacity' });
         }
         appear(before, true, !h?.dir);
       } else {
@@ -244,11 +242,11 @@ const Motion = (() => {
     // Går man tilbage, tegnes den nye side først lidt senere (popstate); så glider den ind som en almindelig side.
     hint = slideIn ? { dir, fromSwipe: true } : { dir };
     run();
-    gsap.to(ghost, { x: -dir * window.innerWidth * 0.9, opacity: 0, duration: 0.24, ease: 'power2.out', onComplete: () => ghost.remove() });
+    gsap.to(ghost, { x: gsap.getProperty(ghost, 'x') - dir * 40, opacity: 0, duration: 0.16, ease: 'power1.out', onComplete: () => ghost.remove() });
     const next = document.querySelector('#app main');
     if (!next || next === main || !slideIn) return;
-    gsap.fromTo(next, { x: dir * window.innerWidth * 0.4, opacity: 0.4 },
-      { x: 0, opacity: 1, duration: 0.26, ease: 'power3.out', clearProps: 'transform,opacity' });
+    gsap.fromTo(next, { x: dir * 24, opacity: 0 },
+      { x: 0, opacity: 1, duration: 0.22, delay: 0.04, ease: 'power2.out', clearProps: 'transform,opacity' });
   }
 
   // ---------- Træk for at opdatere ----------
