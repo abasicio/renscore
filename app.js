@@ -663,6 +663,142 @@ function keyKind(k) {
   return null;
 }
 
+// ---------- Klubfarver ----------
+
+const hexRgb = (h) => { const m = /^#?([0-9a-f]{6})$/i.exec(h || ''); if (!m) return null; const n = parseInt(m[1], 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+const lum = (rgb) => (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
+const rgbDist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const hex = (rgb) => '#' + rgb.map((x) => pad(x.toString(16))).join('');
+
+/** Holdfarver, der kan ses på både lys og mørk baggrund og ikke ligner hinanden. */
+function teamColors(ht, at) {
+  const usable = (t) => [t?.color, t?.alternateColor].map(hexRgb).filter((c) => c && lum(c) < 0.85 && lum(c) > 0.1);
+  const hs = usable(ht), as = usable(at);
+  const h = hs[0] || hexRgb('#374df5');
+  const a = as.find((c) => rgbDist(c, h) > 110) || (rgbDist(hexRgb('#00ad9e'), h) > 110 ? hexRgb('#00ad9e') : hexRgb('#f08c00'));
+  return { h: hex(h), a: hex(a) };
+}
+const inkOn = (fill) => (lum(hexRgb(fill) || [0, 0, 0]) > 0.6 ? '#111' : '#fff');
+
+/** Trøje i holdets farve med rygnummer. Bruges når ESPN ikke har et foto af spilleren. */
+function jerseySvg(fill, num) {
+  return `<svg class="jersey" viewBox="0 0 40 40"><path d="M14 4 4 9.5l3.5 8 4-2V36h17V15.5l4 2L36 9.5 26 4c-1 3-3.4 4.6-6 4.6S15 7 14 4z" fill="${fill}" stroke="rgba(255,255,255,.75)" stroke-width="1.2" stroke-linejoin="round"/>
+    <text x="20" y="28" text-anchor="middle" font-size="12" font-weight="800" fill="${inkOn(fill)}">${esc(num)}</text></svg>`;
+}
+const GK_COLOR = '#f0b429';
+const isKeeper = (p) => /^(G|GK)$/i.test(p.position?.abbreviation || '');
+/** Foto hvis ESPN har et, ellers en trøje. */
+function playerPic(p, color) {
+  const fill = isKeeper(p) ? GK_COLOR : color;
+  const photo = p.athlete?.headshot?.href;
+  return photo
+    ? `<span class="pic"><img src="${esc(photo)}" alt="" loading="lazy"><b style="background:${fill};color:${inkOn(fill)}">${esc(p.jersey || '')}</b></span>`
+    : jerseySvg(fill, p.jersey || '');
+}
+
+// ---------- Form og indbyrdes opgør ----------
+
+const RESULT_DA = { W: 'V', D: 'U', L: 'T' };
+
+function formCard(sum, home, away) {
+  const teams = [home, away].map((c) => (sum?.lastFiveGames || []).find((g) => g.team?.id === c?.team?.id));
+  if (!teams.some((t) => t?.events?.length)) return '';
+  const row = (g, c) => {
+    if (!g?.events?.length) return '';
+    const evs = [...g.events].sort((a, b) => parseDate(a.gameDate) - parseDate(b.gameDate));
+    return `<div class="formrow"><div class="ft">${logoImg(logoOf(c?.team))}<span>${esc(teamName(c?.team))}</span></div>
+      <div class="fgames">${evs.map((ev) => {
+        const r = RESULT_DA[ev.gameResult] || '–';
+        return `<div class="fg"><b class="${r}">${r}</b>${logoImg(logoOf(ev.opponent), 'olog')}<span>${ev.atVs === '@' ? `${esc(ev.awayTeamScore)}-${esc(ev.homeTeamScore)}` : `${esc(ev.homeTeamScore)}-${esc(ev.awayTeamScore)}`}</span></div>`;
+      }).join('')}</div></div>`;
+  };
+  return `<section class="card"><div class="card-head"><span class="flag">📈</span><div><div class="t">Form</div><div class="s">De seneste 5 kampe · nyeste til højre</div></div></div>
+    <div class="sep"></div>${row(teams[0], home)}<div class="sep"></div>${row(teams[1], away)}</section>`;
+}
+
+function h2hCard(sum, home, away, colors) {
+  const series = (sum?.seasonseries || []).find((x) => x.type === 'head-to-head');
+  const games = (series?.events || []).filter((ev) => ev.status === 'post' || ev.statusType?.completed);
+  if (!games.length) return '';
+  const hid = home?.team?.id, aid = away?.team?.id;
+  let hw = 0, aw = 0, dr = 0;
+  for (const ev of games) {
+    const win = ev.competitors?.find((c) => c.winner);
+    if (!win) dr++; else if (win.team?.id === hid) hw++; else if (win.team?.id === aid) aw++;
+  }
+  const n = hw + dr + aw || 1;
+  const rows = [...games].sort((a, b) => parseDate(b.date) - parseDate(a.date)).map((ev) => {
+    const cs = homeFirst(ev.competitors);
+    const d = parseDate(ev.date);
+    return `<div class="sep"></div><div class="h2hrow"><span class="d">${d ? `${fmt.dayMonth(d)}.${String(d.getFullYear()).slice(2)}` : ''}</span>
+      <span class="hn">${esc(teamName(cs[0]?.team))}${logoImg(logoOf(cs[0]?.team))}</span>
+      <b>${esc(cs[0]?.score ?? '')} - ${esc(cs[1]?.score ?? '')}</b>
+      <span class="an">${logoImg(logoOf(cs[1]?.team))}${esc(teamName(cs[1]?.team))}</span></div>`;
+  }).join('');
+  return `<section class="card"><div class="card-head"><span class="flag">⚔️</span><div><div class="t">Indbyrdes opgør</div><div class="s">De seneste ${games.length} kampe</div></div></div>
+    <div class="h2hsum"><div><b style="color:${colors.h}">${hw}</b><span>${esc(teamName(home?.team))}</span></div><div><b>${dr}</b><span>Uafgjort</span></div><div><b style="color:${colors.a}">${aw}</b><span>${esc(teamName(away?.team))}</span></div></div>
+    <div class="h2hbar"><i style="flex:${hw / n};background:${colors.h}"></i><i style="flex:${dr / n};background:#8e8e93"></i><i style="flex:${aw / n};background:${colors.a}"></i></div>
+    ${rows}</section>`;
+}
+
+// ---------- Live-kommentarer ----------
+
+/** ESPN's kommentarer er på engelsk; de almindelige hændelser oversættes ud fra deres type. */
+function commentLine(c) {
+  const pl = c.play || {};
+  const type = pl.type?.type || '';
+  const who = (i = 0) => pl.participants?.[i]?.athlete?.displayName || '';
+  const team = pl.team?.displayName || '';
+  const withTeam = (n) => esc(n) + (team ? ` <span class="ct">(${esc(team)})</span>` : '');
+  const text = c.text || '';
+  if (/goal|penalty---scored/.test(type) && !/kick|missed|saved/.test(type)) {
+    const score = (text.match(/Goal!\s*([^.]+)\./) || [])[1];
+    const own = /own goal/i.test(text);
+    return { ic: '⚽', big: true, html: `<b>MÅL!${score ? ' ' + esc(score) : ''}</b><div>${withTeam(who())}${own ? ' · selvmål' : type.startsWith('penalty') ? ' · straffespark' : ''}${who(1) && !own ? ` · assist ${esc(who(1))}` : ''}</div>` };
+  }
+  const sub = text.match(/Substitution, (.+?)\. (.+?) replaces (.+?)\./);
+  const map = {
+    'yellow-card': ['<span class="card-y"></span>', () => `Gult kort til ${withTeam(who())}`],
+    'red-card': ['<span class="card-r"></span>', () => `Rødt kort til ${withTeam(who())}`],
+    'corner-awarded': ['⛳', () => `Hjørnespark til ${esc(team)}`],
+    foul: ['✋', () => `Frispark begået af ${withTeam(who())}`],
+    offside: ['🚩', () => `Offside: ${withTeam(who())}`],
+    'shot-on-target': ['🎯', () => `Skud på mål: ${withTeam(who())}`],
+    'shot-off-target': ['↗', () => `Skud forbi: ${withTeam(who())}`],
+    'shot-blocked': ['🛡', () => `Skud blokeret: ${withTeam(who())}`],
+    'shot-hit-woodwork': ['🥅', () => `På stolpen/overliggeren: ${withTeam(who())}`],
+    'penalty---missed': ['❌', () => `Straffespark brændt: ${withTeam(who())}`],
+    'penalty---saved': ['🧤', () => `Straffespark reddet: ${withTeam(who())}`],
+    'start-delay': ['⏸', () => 'Kampen er afbrudt'],
+    'end-delay': ['▶', () => 'Kampen fortsætter'],
+    'deleted-after-review': ['📺', () => 'VAR: annulleret efter gennemsyn'],
+  };
+  if (type === 'substitution' && sub) return { ic: '⇄', html: `Udskiftning, ${esc(sub[1])}: <span class="arrow-in">↑</span> ${esc(sub[2])} <span class="arrow-out">↓</span> ${esc(sub[3])}` };
+  if (map[type]) return { ic: map[type][0], html: map[type][1]() };
+  if (type === 'kickoff') return { marker: pl.period?.number === 2 ? 'ANDEN HALVLEG' : pl.period?.number > 2 ? 'FORLÆNGET SPILLETID' : 'KAMPSTART' };
+  if (type === 'halftime') return { marker: 'PAUSE' };
+  if (type === 'end-regular-time' || type === 'end-extra-time' || type === 'full-time') return { marker: 'SLUT' };
+  if (type.startsWith('var')) return { ic: '📺', html: 'VAR: ' + esc(pl.text || text) };
+  const end = text.match(/^Match ends, (.+)\.$/);
+  if (end) return { ic: '🏁', html: `<b>Kampen er slut: ${esc(end[1])}</b>` };
+  const added = text.match(/announced (\d+) minutes? of added time/);
+  if (added) return { ic: '⏱', html: `${added[1]} minutters tillægstid` };
+  const half = text.match(/^(First|Second) Half ends, (.+)\.$/);
+  if (half) return { ic: '⏸', html: `${half[1] === 'First' ? 'Første' : 'Anden'} halvleg er slut: ${esc(half[2])}` };
+  if (/^Lineups are announced/.test(text)) return { ic: '📋', html: 'Holdene er offentliggjort, og spillerne varmer op' };
+  return { ic: '·', html: esc(text) };
+}
+
+function commentaryTab(list) {
+  const rows = [...list].sort((a, b) => b.sequence - a.sequence).map((c) => {
+    const l = commentLine(c);
+    if (l.marker) return `<div class="marker">${l.marker}</div>`;
+    return `<div class="cm ${l.big ? 'goal' : ''}"><span class="min">${esc(c.time?.displayValue || '')}</span><span class="ic">${l.ic}</span><div class="txt">${l.html}</div></div>`;
+  });
+  return `<section class="card">${rows.join('<div class="sep"></div>')}</section>
+    <p class="note">Kommentarer fra ESPN. Opdateres automatisk under kampen.</p>`;
+}
+
 function viewMatch(leagueId, id) {
   const league = leagueById(leagueId) || { id: leagueId, name: '', flag: '' };
   const cached = eventCache.get(`${leagueId}:${id}`);
@@ -685,7 +821,10 @@ function viewMatch(leagueId, id) {
   const groups = (sum?.standings?.groups || []).filter((g) => g.standings?.entries?.length);
   const timeline = (sum?.keyEvents || []).map((k) => ({ k, kind: keyKind(k) })).filter((x) => x.kind);
 
+  const commentary = sum?.commentary || [];
+  const colors = teamColors(home?.team, away?.team);
   const tabs = [['details', 'Detaljer']];
+  if (commentary.length) tabs.push(['comments', 'Kommentarer']);
   if (Object.keys(stats(home?.team?.id)).length) tabs.push(['stats', 'Statistik']);
   if (roster(home?.team?.id)?.roster?.some((p) => p.starter)) tabs.push(['lineups', 'Opstilling']);
   if (groups.length) tabs.push(['table', 'Stilling']);
@@ -701,11 +840,11 @@ function viewMatch(leagueId, id) {
     ? `<div class="kick">${fmt.time(parseDate(event.date))}</div><div class="stat">${esc(event.date ? fmt.dayLabel(parseDate(event.date)) : '')}</div>`
     : `<div class="score">${esc(scoreOf(home))}<i>-</i>${esc(scoreOf(away))}</div><div class="stat ${st === 'in' ? 'live' : ''}">${esc(matchStatus(event))}</div>`;
 
-  let html = `<header class="top">
+  let html = `<header class="top mtop" style="--hc:${colors.h};--ac:${colors.a}">
     <div class="row"><button class="iconbtn" data-action="back" aria-label="Tilbage">${BACK_ICON}</button><p class="title-center">${esc(league.name)}</p><span style="width:34px"></span></div>
     <div class="mhead">${teamCol(home)}<div class="mid">${mid}</div>${teamCol(away)}</div>
     <div class="utabs">${tabs.map(([t, label]) => `<button class="${ui.detailTab === t ? 'sel' : ''}" data-action="dtab" data-v="${t}">${label}</button>`).join('')}</div>
-  </header><main>`;
+  </header><main style="--hc:${colors.h};--ac:${colors.a}">`;
 
   if (ui.detailTab === 'details') {
     const w = st === 'post' ? { tvs: [], stream: [] } : watchFor({ date: event.date, competitions: [{ competitors: cs }] });
@@ -714,10 +853,13 @@ function viewMatch(leagueId, id) {
         ${w.tvs.map((c) => `<div class="sep"></div><div class="tvrow"><b>${esc(c.ch)}</b><span>Tv · ${fmt.time(new Date(c.start))}</span></div>`).join('')}
         ${w.stream.map((s) => `<div class="sep"></div><div class="tvrow"><b>${esc(s)}</b><span>Streaming</span></div>`).join('')}</section>`;
     }
-    html += detailsTab(timeline, home, st, event);
+    const extra = formCard(sum, home, away) + h2hCard(sum, home, away, colors);
+    if (timeline.length || !extra) html += detailsTab(timeline, home, st, event);
+    html += extra;
   }
+  else if (ui.detailTab === 'comments') html += commentaryTab(commentary);
   else if (ui.detailTab === 'stats') html += statsTab(stats(home?.team?.id), stats(away?.team?.id));
-  else if (ui.detailTab === 'lineups') html += lineupsTab(home, away, roster, sum?.keyEvents || [], fallbackLogo);
+  else if (ui.detailTab === 'lineups') html += lineupsTab(home, away, roster, sum?.keyEvents || [], fallbackLogo, colors);
   else if (ui.detailTab === 'table') html += tableTab(groups, [home?.team?.id, away?.team?.id]);
   return html + '</main>';
 }
@@ -757,8 +899,8 @@ function statsTab(h, a) {
     const hf = total ? (hv / total) * 100 : 0, af = total ? (av / total) * 100 : 0;
     return `<div class="srow">
       <div class="vals"><span class="v ${hv > av ? 'hi-h' : ''}">${esc(h[key])}${suffix}</span><span>${label}</span><span class="v ${av > hv ? 'hi-a' : ''}">${esc(a[key])}${suffix}</span></div>
-      <div class="bars"><div class="bar h"><i style="width:${hf}%;background:var(--brand);opacity:${hv >= av ? 1 : 0.35}"></i></div>
-      <div class="bar"><i style="width:${af}%;background:var(--away);opacity:${av >= hv ? 1 : 0.35}"></i></div></div>
+      <div class="bars"><div class="bar h"><i style="width:${hf}%;background:var(--hc);opacity:${hv >= av ? 1 : 0.35}"></i></div>
+      <div class="bar"><i style="width:${af}%;background:var(--ac);opacity:${av >= hv ? 1 : 0.35}"></i></div></div>
     </div>`;
   });
   return `<section class="card stats">${rows.join('')}</section>`;
@@ -810,10 +952,11 @@ const PITCH_LINES = `<svg class="lines" viewBox="0 0 72 100" preserveAspectRatio
   <rect x="16" y="2.5" width="40" height="14"/><rect x="16" y="83.5" width="40" height="14"/>
   <rect x="26.6" y="2.5" width="18.8" height="5.5"/><rect x="26.6" y="92" width="18.8" height="5.5"/></svg>`;
 
-function lineupsTab(home, away, rosterOf, keyEvents, logo) {
+function lineupsTab(home, away, rosterOf, keyEvents, logo, colors) {
   const side = ui.lineupSide === 'away' ? away : home;
+  const color = ui.lineupSide === 'away' ? colors.a : colors.h;
   const r = rosterOf(side?.team?.id);
-  const pick = [home, away].filter(Boolean).map((c) => `<button class="${ui.lineupSide === c.homeAway ? 'sel' : ''}" data-action="side" data-v="${c.homeAway}">${logoImg(logo(c))}${esc(teamName(c.team))}</button>`).join('');
+  const pick = [home, away].filter(Boolean).map((c) => `<button class="${ui.lineupSide === c.homeAway ? 'sel' : ''}" style="--sel:${c.homeAway === 'away' ? colors.a : colors.h}" data-action="side" data-v="${c.homeAway}">${logoImg(logo(c))}${esc(teamName(c.team))}</button>`).join('');
   if (!r) return `<div class="sidepick">${pick}</div>`;
   const players = r.roster || [];
   const starters = players.filter((p) => p.starter);
@@ -824,7 +967,7 @@ function lineupsTab(home, away, rosterOf, keyEvents, logo) {
     const red = count(pid, (k) => k.t === 'red'), yellow = count(pid, (k) => k.t === 'yellow');
     const name = p.athlete?.lastName || p.athlete?.shortName || p.athlete?.displayName || '';
     const out = p.subbedOut === true || p.subbedOut?.didSub === true;
-    return `<div class="player"><div class="shirt">${esc(p.jersey || '')}
+    return `<div class="player"><div class="shirt">${playerPic(p, color)}
       ${red || yellow ? `<span class="b-card" style="background:${red ? '#e53935' : '#f5c400'}"></span>` : ''}
       ${out ? '<span class="b-out">↓</span>' : ''}${goals ? '<span class="b-goal">⚽</span>' : ''}</div>
       <div class="nm">${esc(name)}</div></div>`;
@@ -837,7 +980,7 @@ function lineupsTab(home, away, rosterOf, keyEvents, logo) {
     ${r.formation ? `<div class="formation">Formation ${esc(r.formation)}</div>` : ''}
     <div class="pitch">${PITCH_LINES}<div class="rows">${lines.map((l) => `<div class="prow">${l.map(dot).join('')}</div>`).join('')}</div></div>
     <section class="card bench"><div class="card-head"><div class="t">Bænk</div></div>
-      ${benchSorted.map((p) => `<div class="sep"></div><div class="bp"><span class="j">${esc(p.jersey || '')}</span><span>${esc(p.athlete?.displayName || '')}</span>
+      ${benchSorted.map((p) => `<div class="sep"></div><div class="bp"><span class="j">${playerPic(p, color)}</span><span>${esc(p.athlete?.displayName || '')}</span>
         ${subIn(p) ? '<span class="arrow-in">↑</span>' : ''}<span class="pos">${esc(p.position?.abbreviation || '')}</span></div>`).join('')}
     </section>`;
 }
