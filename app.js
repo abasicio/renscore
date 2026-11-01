@@ -906,7 +906,7 @@ function viewMatch(leagueId, id) {
   const commentary = sum?.commentary || [];
   const colors = teamColors(home?.team, away?.team);
   const tabs = [['details', 'Detaljer']];
-  if (commentary.length) tabs.push(['comments', 'Kommentarer']);
+  if (commentary.length) tabs.push(['comments', 'Referat']);
   if (Object.keys(stats(home?.team?.id)).length) tabs.push(['stats', 'Statistik']);
   if (roster(home?.team?.id)?.roster?.some((p) => p.starter)) tabs.push(['lineups', 'Opstilling']);
   if (groups.length) tabs.push(['table', 'Stilling']);

@@ -11,6 +11,7 @@
   --fill: #ececf1;
   --pitch: #338c4d;
   --tabbar: rgba(255, 255, 255, 0.86);
+  --link: #374df5;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -21,6 +22,7 @@
     --line: #2e2e33;
     --fill: #2c2c30;
     --tabbar: rgba(28, 28, 30, 0.86);
+    --link: #8c9bff;
   }
 }
 
@@ -80,8 +82,8 @@ img { display: block; }
 .day span { font-size: 12px; font-variant-numeric: tabular-nums; }
 .day.sel { background: #fff; color: var(--brand); }
 
-.utabs { display: flex; gap: 22px; padding: 14px 16px 0; overflow-x: auto; scrollbar-width: none; }
-.utabs button { color: rgba(255, 255, 255, 0.65); font-weight: 600; font-size: 15px; padding-bottom: 7px; border-bottom: 3px solid transparent; white-space: nowrap; }
+.utabs { display: flex; gap: 18px; padding: 14px 16px 0; overflow-x: auto; scrollbar-width: none; }
+.utabs button { color: rgba(255, 255, 255, 0.65); font-weight: 600; font-size: 14.5px; padding-bottom: 7px; border-bottom: 3px solid transparent; white-space: nowrap; }
 .utabs button.sel { color: #fff; border-color: #fff; }
 
 /* Kort */
@@ -107,7 +109,7 @@ main { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 12px;
 .team.lose { color: var(--muted); }
 .team .rec { font-size: 11px; color: var(--muted); }
 .team .fav { color: #f5c400; font-size: 10px; }
-.tvline { font-size: 11.5px; color: var(--brand); font-weight: 600; margin-top: -1px; }
+.tvline { font-size: 11.5px; color: var(--link); font-weight: 600; margin-top: -1px; }
 .tvrow { display: flex; justify-content: space-between; padding: 11px 14px; font-size: 15px; }
 .tvrow span { color: var(--muted); font-variant-numeric: tabular-nums; }
 .logo { width: 18px; height: 18px; object-fit: contain; flex: 0 0 auto; }
