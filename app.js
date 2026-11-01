@@ -558,8 +558,16 @@ function route() {
 
 const app = document.getElementById('app');
 
+/** Hvad man kigger på lige nu. Skifter den, er det et nyt skærmbillede (animeres ind). */
+function viewKey(r) {
+  if (r.name === 'scores') return `scores|${ui.sport}|${ui.sport === 'football' ? apiDay(ui.day) : ui.ufcMode}|${ui.liveOnly}`;
+  if (r.name === 'match') return `match|${r.league}|${r.id}|${ui.detailTab}|${ui.lineupSide}`;
+  return r.name;
+}
+
 function render() {
   const r = route();
+  const before = typeof Motion !== 'undefined' ? Motion.snapshot() : null;
   document.querySelectorAll('#tabbar a').forEach((a) => {
     a.classList.toggle('sel', a.dataset.tab === (r.name === 'match' ? 'scores' : r.name));
   });
@@ -568,6 +576,7 @@ function render() {
   else if (r.name === 'fav') app.innerHTML = viewFavorites();
   else app.innerHTML = viewSettings();
   centerSelectedDay();
+  if (before) Motion.after(before, viewKey(r), r.name);
 }
 
 let lastCenteredDay = null;
@@ -582,7 +591,9 @@ function centerSelectedDay() {
   lastCenteredDay = key;
 }
 
+let routeSig = location.hash;
 function routeChanged() {
+  routeSig = location.hash;
   if (sheet) { sheet.remove(); sheet = null; document.body.style.overflow = ''; }
   window.scrollTo(0, 0);
   ui.detailTab = 'details';
@@ -591,7 +602,10 @@ function routeChanged() {
   render();
   load();
 }
-window.addEventListener('hashchange', routeChanged);
+// Tilbage fra "#/match/…" til en adresse helt uden # giver kun popstate i Safari, ikke hashchange.
+const onNavigate = () => { if (location.hash !== routeSig) routeChanged(); };
+window.addEventListener('hashchange', onNavigate);
+window.addEventListener('popstate', onNavigate);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
 
 // ---------- Visning: Kampe ----------
@@ -610,14 +624,14 @@ function viewScores() {
       ${ui.sport === 'football' ? `<button class="live-btn ${ui.liveOnly ? 'on' : ''}" data-action="live"><span class="dot"></span>LIVE${liveCount ? ' ' + liveCount : ''}</button>` : ''}
       <button class="iconbtn" data-action="refresh" aria-label="Opdater">${REFRESH_ICON}</button>
     </div>
-    <div class="chips">
+    <div class="chips" data-ind="sport">
       <button class="chip ${ui.sport === 'football' ? 'sel' : ''}" data-action="sport" data-v="football">⚽ Fodbold</button>
       <button class="chip ${ui.sport === 'mma' ? 'sel' : ''}" data-action="sport" data-v="mma">🥊 MMA</button>
     </div>`;
   if (ui.sport === 'football') {
-    head += `<div class="days">${days.map((d) => `<button class="day ${sameDay(d, ui.day) ? 'sel' : ''}" data-action="day" data-v="${d.getTime()}"><b>${fmt.weekdayShort(d)}</b><span>${fmt.dayMonth(d)}</span></button>`).join('')}</div>`;
+    head += `<div class="days" data-ind="days">${days.map((d) => `<button class="day ${sameDay(d, ui.day) ? 'sel' : ''}" data-action="day" data-v="${d.getTime()}"><b>${fmt.weekdayShort(d)}</b><span>${fmt.dayMonth(d)}</span></button>`).join('')}</div>`;
   } else {
-    head += `<div class="chips">
+    head += `<div class="chips" data-ind="ufc">
       <button class="chip ${ui.ufcMode === 'next' ? 'sel' : ''}" data-action="ufc" data-v="next">Næste</button>
       <button class="chip ${ui.ufcMode === 'latest' ? 'sel' : ''}" data-action="ufc" data-v="latest">Seneste</button>
     </div>`;
@@ -630,7 +644,7 @@ function footballBody() {
   const f = data.football;
   const vis = (evs) => (ui.liveOnly ? evs.filter(isLive) : evs);
   const days = f.days.map((x) => ({ ...x, events: vis(x.events) })).filter((x) => x.events.length);
-  if (f.loading) return '<div class="spinner"></div>';
+  if (f.loading) return skeleton(3);
   if (f.failed) return emptyBox('📡', 'Ingen forbindelse', 'Tryk på ↻ for at prøve igen.');
   if (!days.length) {
     return ui.liveOnly ? emptyBox('⚽', 'Ingen live-kampe', 'Der spilles ikke lige nu i dine ligaer.')
@@ -659,8 +673,8 @@ function matchRow(e, leagueId) {
   const lose = (c) => done && hasWinner && c.winner !== true;
   const teams = cs.map((c) => `<div class="team ${lose(c) ? 'lose' : ''}">${logoImg(logoOf(c.team))}<span class="n">${esc(teamName(c.team))}</span>${isFav(c.team?.id) ? '<span class="fav">★</span>' : ''}</div>`).join('');
   const scores = stateOf(e) === 'pre' ? '' :
-    `<div class="mscores ${live ? 'live' : ''}">${cs.map((c) => `<div class="${lose(c) && !live ? 'lose' : ''}">${esc(scoreOf(c))}</div>`).join('')}</div>`;
-  return `<a class="match" href="#/match/${encodeURIComponent(leagueId)}/${encodeURIComponent(e.id)}">
+    `<div class="mscores ${live ? 'live' : ''}" data-score="${esc(e.id)}">${cs.map((c) => `<div class="${lose(c) && !live ? 'lose' : ''}">${esc(scoreOf(c))}</div>`).join('')}</div>`;
+  return `<a class="match${live ? ' is-live' : ''}" href="#/match/${encodeURIComponent(leagueId)}/${encodeURIComponent(e.id)}">
     <div class="mtime"><span>${fmt.time(parseDate(e.date))}</span><span class="${live ? 'live' : ''}">${esc(rowStatus(e))}</span></div>
     <div class="mteams">${teams}${tvLine(e)}</div>${scores}
   </a>`;
@@ -673,6 +687,12 @@ function tvLine(e) {
   if (tvs.length) parts.push('📺 ' + tvs.map((c) => esc(c.ch)).join(' · '));
   if (stream.length) parts.push('▶ ' + stream.map(esc).join(' · '));
   return parts.length ? `<div class="tvline">${parts.join('&nbsp;&nbsp;')}</div>` : '';
+}
+
+/** Grå pladsholdere i kampkortenes form, mens data hentes. */
+function skeleton(cards, rows = 3) {
+  const row = '<div class="sep"></div><div class="sk-row"><i class="sk sk-t"></i><div><i class="sk sk-n"></i><i class="sk sk-n s"></i></div></div>';
+  return Array.from({ length: cards }, (_, i) => `<section class="card sk-card" data-k="sk${i}"><div class="card-head"><i class="sk sk-f"></i><div><i class="sk sk-h"></i><i class="sk sk-s"></i></div></div>${row.repeat(rows - (i % 2))}</section>`).join('');
 }
 
 function emptyBox(icon, title, text) {
@@ -694,7 +714,7 @@ function weightClass(s) {
 
 function ufcBody() {
   const d = data.ufc;
-  if (d.loading) return '<div class="spinner"></div>';
+  if (d.loading) return skeleton(2, 4);
   if (d.failed) return emptyBox('📡', 'Ingen forbindelse', 'Tryk på ↻ for at prøve igen.');
   if (!d.events.length) return emptyBox('🥊', 'Ingen stævner', 'Der blev ikke fundet nogen UFC-aften.');
   return d.events.map((ev) => {
@@ -896,7 +916,7 @@ function viewMatch(leagueId, id) {
   const fallbackLogo = (c) => logoOf(c?.team) || logoOf(cachedCs.find((x) => x.homeAway === c?.homeAway)?.team);
 
   if (!cached && !sum) {
-    return `<header class="top"><div class="row"><button class="iconbtn" data-action="back">${BACK_ICON}</button><p class="title-center">${esc(league.name)}</p><span style="width:34px"></span></div></header><main><div class="spinner"></div></main>`;
+    return `<header class="top"><div class="row"><button class="iconbtn" data-action="back">${BACK_ICON}</button><p class="title-center">${esc(league.name)}</p><span style="width:34px"></span></div></header><main>${skeleton(2)}</main>`;
   }
 
   const stats = (teamId) => Object.fromEntries((sum?.boxscore?.teams || []).find((t) => t.team?.id === teamId)?.statistics?.map((s) => [s.name, s.displayValue]) || []);
@@ -921,12 +941,12 @@ function viewMatch(leagueId, id) {
     </div>`;
   const mid = st === 'pre'
     ? `<div class="kick">${fmt.time(parseDate(event.date))}</div><div class="stat">${esc(event.date ? fmt.dayLabel(parseDate(event.date)) : '')}</div>`
-    : `<div class="score">${esc(scoreOf(home))}<i>-</i>${esc(scoreOf(away))}</div><div class="stat ${st === 'in' ? 'live' : ''}">${esc(matchStatus(event))}</div>`;
+    : `<div class="score" data-score="head">${esc(scoreOf(home))}<i>-</i>${esc(scoreOf(away))}</div><div class="stat ${st === 'in' ? 'live' : ''}">${esc(matchStatus(event))}</div>`;
 
   let html = `<header class="top mtop" style="--hc:${colors.h};--ac:${colors.a}">
     <div class="row"><button class="iconbtn" data-action="back" aria-label="Tilbage">${BACK_ICON}</button><p class="title-center">${esc(league.name)}</p><span style="width:34px"></span></div>
     <div class="mhead">${teamCol(home)}<div class="mid">${mid}</div>${teamCol(away)}</div>
-    <div class="utabs">${tabs.map(([t, label]) => `<button class="${ui.detailTab === t ? 'sel' : ''}" data-action="dtab" data-v="${t}">${label}</button>`).join('')}</div>
+    <div class="utabs" data-ind="utabs" data-ind-style="line">${tabs.map(([t, label]) => `<button class="${ui.detailTab === t ? 'sel' : ''}" data-action="dtab" data-v="${t}">${label}</button>`).join('')}</div>
   </header><main style="--hc:${colors.h};--ac:${colors.a}">`;
 
   if (ui.detailTab === 'details') {
@@ -1182,13 +1202,18 @@ function viewSettings() {
 // ---------- Klik ----------
 
 const actions = {
-  sport(el) { ui.sport = el.dataset.v; render(); load(); },
+  sport(el) { Motion.hint = { dir: el.dataset.v === 'mma' ? 1 : -1 }; ui.sport = el.dataset.v; render(); load(); },
   live() { ui.liveOnly = !ui.liveOnly; render(); },
   refresh() { load(); },
-  day(el) { ui.day = new Date(Number(el.dataset.v)); render(); load(); },
-  ufc(el) { ui.ufcMode = el.dataset.v; render(); load(); },
+  day(el) { const d = new Date(Number(el.dataset.v)); Motion.hint = { dir: Math.sign(d - ui.day) }; ui.day = d; render(); load(); },
+  ufc(el) { Motion.hint = { dir: el.dataset.v === 'latest' ? 1 : -1 }; ui.ufcMode = el.dataset.v; render(); load(); },
   back() { if (history.length > 1) history.back(); else location.hash = '#/'; },
-  dtab(el) { ui.detailTab = el.dataset.v; render(); },
+  dtab(el) {
+    const tabs = [...app.querySelectorAll('.utabs [data-v]')].map((b) => b.dataset.v);
+    Motion.hint = { dir: Math.sign(tabs.indexOf(el.dataset.v) - tabs.indexOf(ui.detailTab)) };
+    ui.detailTab = el.dataset.v;
+    render();
+  },
   side(el) { ui.lineupSide = el.dataset.v; render(); },
   fav(el) {
     toggleFav({ id: el.dataset.id, name: el.dataset.name, logo: el.dataset.logo }, el.dataset.league);
@@ -1242,8 +1267,10 @@ function swipeAction(dir, edge) {
   return { run: () => { history.pushState(null, '', MAIN_TABS[i]); routeChanged(); } };
 }
 
+// Træk-for-at-opdatere giver kun mening i hjemmeskærms-appen; i Safari har browseren sin egen.
+const standalone = navigator.standalone === true || window.matchMedia?.('(display-mode: standalone)').matches || /[?&]ptr\b/.test(location.search);
+
 let swipe = null;
-const resetMain = (main) => { main.style.transition = 'transform .22s ease, opacity .22s'; main.style.transform = ''; main.style.opacity = ''; };
 
 app.addEventListener('touchstart', (e) => {
   swipe = null;
@@ -1254,7 +1281,7 @@ app.addEventListener('touchstart', (e) => {
   const edge = t.clientX < 24;
   if (edge && !navigator.standalone) return;
   const main = app.querySelector('main');
-  if (main) swipe = { x: t.clientX, y: t.clientY, t: Date.now(), edge, main, lock: null, dx: 0 };
+  if (main) swipe = { x: t.clientX, y: t.clientY, t: Date.now(), edge, main, lock: null, dx: 0, dy: 0, top: window.scrollY <= 0 };
 }, { passive: true });
 
 app.addEventListener('touchmove', (e) => {
@@ -1262,42 +1289,30 @@ app.addEventListener('touchmove', (e) => {
   const t = e.touches[0], dx = t.clientX - swipe.x, dy = t.clientY - swipe.y;
   if (!swipe.lock) {
     if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-    if (Math.abs(dx) < Math.abs(dy) * 1.2) { swipe = null; return; } // lodret: almindelig scroll
-    swipe.lock = true;
-    swipe.next = { 1: swipeAction(1, swipe.edge), '-1': swipeAction(-1, swipe.edge) };
+    if (Math.abs(dx) > Math.abs(dy) * 1.2) {
+      swipe.lock = 'x';
+      swipe.next = { 1: swipeAction(1, swipe.edge), '-1': swipeAction(-1, swipe.edge) };
+    } else if (dy > 0 && swipe.top && standalone && route().name !== 'settings') {
+      swipe.lock = 'pull';
+    } else { swipe = null; return; } // almindelig lodret scroll
   }
   e.preventDefault();
   swipe.dx = dx;
-  const pull = swipe.next[dx < 0 ? 1 : -1] ? dx * 0.6 : dx * 0.15; // modstand, når der ikke er mere
-  swipe.main.style.transition = 'none';
-  swipe.main.style.transform = `translateX(${pull}px)`;
-  swipe.main.style.opacity = String(1 - Math.min(Math.abs(pull) / 500, 0.35));
+  swipe.dy = dy;
+  if (swipe.lock === 'x') Motion.drag(swipe.main, dx, !!swipe.next[dx < 0 ? 1 : -1]);
+  else swipe.ready = Motion.pull(swipe.main, Math.max(0, dy));
 }, { passive: false });
 
 function endSwipe() {
   const s = swipe;
   swipe = null;
   if (!s?.lock) return;
+  if (s.lock === 'pull') { Motion.release(s.main, s.ready, () => load()); return; }
   const dir = s.dx < 0 ? 1 : -1;
   const fast = Math.abs(s.dx) > 35 && Date.now() - s.t < 280;
   const act = (Math.abs(s.dx) > 70 || fast) ? s.next[dir] : null;
-  if (!act) return resetMain(s.main);
-  s.main.style.transition = 'transform .13s ease-in, opacity .13s';
-  s.main.style.transform = `translateX(${-dir * 40}%)`;
-  s.main.style.opacity = '0';
-  setTimeout(() => {
-    act.run();
-    const next = app.querySelector('main');
-    if (!next || next === s.main || act.slide === false) { if (next) resetMain(next); return; }
-    next.style.transition = 'none';
-    next.style.transform = `translateX(${dir * 30}%)`;
-    next.style.opacity = '0';
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      next.style.transition = 'transform .2s ease-out, opacity .2s';
-      next.style.transform = '';
-      next.style.opacity = '';
-    }));
-  }, 120);
+  if (!act) return Motion.settle(s.main);
+  Motion.commit(s.main, dir, act.run, act.slide !== false);
 }
 app.addEventListener('touchend', endSwipe);
 app.addEventListener('touchcancel', endSwipe);

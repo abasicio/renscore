@@ -12,6 +12,7 @@
   --pitch: #338c4d;
   --tabbar: rgba(255, 255, 255, 0.86);
   --link: #374df5;
+  --shadow: 0 1px 1px rgba(16, 24, 64, 0.03), 0 10px 28px -18px rgba(16, 24, 64, 0.22);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -23,6 +24,7 @@
     --fill: #2c2c30;
     --tabbar: rgba(28, 28, 30, 0.86);
     --link: #8c9bff;
+    --shadow: none;
   }
 }
 
@@ -31,7 +33,7 @@ html, body { margin: 0; background: var(--bg); color: var(--text); }
 body {
   font: 15px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
-  padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  padding-bottom: calc(92px + env(safe-area-inset-bottom));
   overscroll-behavior-y: none;
 }
 a { color: inherit; text-decoration: none; }
@@ -42,7 +44,7 @@ img { display: block; }
 
 /* Blå topbjælke */
 .top {
-  background: var(--brand);
+  background: linear-gradient(165deg, #4b5fff 0%, var(--brand) 48%, #2a3ed6 100%);
   color: #fff;
   padding: calc(env(safe-area-inset-top) + 10px) 0 12px;
   position: sticky; top: 0; z-index: 10;
@@ -88,7 +90,7 @@ img { display: block; }
 
 /* Kort */
 main { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 12px; }
-.card { background: var(--card); border-radius: 14px; overflow: hidden; }
+.card { background: var(--card); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); }
 .card-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
 .card-head .flag { font-size: 20px; line-height: 1; }
 .card-head .t { font-weight: 700; font-size: 14px; }
@@ -235,13 +237,14 @@ main { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 12px;
 
 /* Faneblade i bunden */
 .tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-  display: flex; justify-content: space-around;
-  padding: 6px 0 calc(6px + env(safe-area-inset-bottom));
-  background: var(--tabbar); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
-  border-top: 0.5px solid var(--line);
+  position: fixed; left: 14px; right: 14px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 20;
+  display: flex; justify-content: space-around; padding: 6px;
+  max-width: 420px; margin: 0 auto;
+  background: var(--tabbar); backdrop-filter: saturate(180%) blur(24px); -webkit-backdrop-filter: saturate(180%) blur(24px);
+  border: 0.5px solid var(--line); border-radius: 30px;
+  box-shadow: 0 12px 34px -12px rgba(10, 16, 48, 0.35);
 }
-.tabbar a { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10.5px; font-weight: 500; color: var(--muted); }
+.tabbar a { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0 5px; font-size: 10.5px; font-weight: 600; color: var(--muted); transition: color 0.25s; }
 .tabbar svg { width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
 .tabbar a.sel { color: var(--brand); }
 .tabbar a.sel svg { fill: color-mix(in srgb, var(--brand) 18%, transparent); }
@@ -297,3 +300,66 @@ main { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 12px;
 /* Swipe: indholdet glider til siden uden at give vandret scroll */
 #app { overflow-x: clip; }
 main { touch-action: pan-y pinch-zoom; will-change: transform; }
+
+/* ---------- Bevægelse og finish ---------- */
+
+/* Markører, der glider mellem valgte elementer (styres af motion.js) */
+:where([data-ind]) { position: relative; }
+[data-ind] > :not(.ind) { position: relative; z-index: 1; }
+.ind { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; will-change: transform, width; }
+.ind-on > .sel { background: transparent !important; }
+.chips .ind { background: #fff; border-radius: 99px; box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.35); }
+.days .ind { background: #fff; border-radius: 12px; box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.35); }
+.utabs .ind { top: auto; bottom: 0; height: 3px; border-radius: 3px; background: #fff; }
+.utabs.ind-on button.sel { border-color: transparent; }
+.tabbar .ind { background: color-mix(in srgb, var(--brand) 13%, transparent); border-radius: 24px; }
+.chip, .day, .utabs button { transition: color 0.25s; }
+
+/* Runde tal til resultater og tider */
+.mscores, .mhead .score, .mhead .kick, .h2hsum b, .mtime, .day span, .srow .v, .fg span {
+  font-family: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+}
+.mhead .score { font-size: 44px; letter-spacing: 0; }
+
+/* Live */
+.match { position: relative; transition: background-color 0.2s; }
+.match:active { background: var(--fill); }
+.match.is-live { box-shadow: inset 3px 0 0 var(--live); }
+.mtime .live::before, .live-btn .dot { animation: pulse 1.5s ease-in-out infinite; }
+.mtime .live::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: var(--live); vertical-align: 1px; }
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.7); } }
+
+/* Mål! */
+.mhead { position: relative; }
+.goal-flash {
+  position: absolute; right: 54px; top: 50%; margin-top: -11px; height: 22px; padding: 0 9px; z-index: 2;
+  display: grid; place-items: center; border-radius: 99px; background: var(--win); color: #fff;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.6px; pointer-events: none;
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--win) 80%, transparent);
+}
+.mhead .goal-flash { right: 50%; margin-right: -26px; top: auto; bottom: -6px; }
+
+/* Skeletter mens der hentes */
+.sk { display: block; border-radius: 6px; background: linear-gradient(90deg, var(--fill) 0%, color-mix(in srgb, var(--fill) 45%, var(--card)) 50%, var(--fill) 100%); background-size: 220% 100%; animation: shimmer 1.3s ease-in-out infinite; }
+@keyframes shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+.sk-f { width: 22px; height: 16px; border-radius: 4px; }
+.sk-h { width: 110px; height: 12px; margin-bottom: 6px; }
+.sk-s { width: 64px; height: 10px; }
+.sk-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+.sk-row > div { flex: 1; display: flex; flex-direction: column; gap: 9px; }
+.sk-t { width: 32px; height: 10px; }
+.sk-n { width: 58%; height: 12px; }
+.sk-n.s { width: 44%; }
+
+/* Træk for at opdatere */
+.ptr { position: fixed; left: 50%; width: 30px; height: 30px; margin-left: -15px; z-index: 9; opacity: 0; pointer-events: none; }
+.ptr svg { width: 100%; height: 100%; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linejoin: round; transition: stroke 0.2s; }
+.ptr.ready svg { stroke: var(--brand); }
+
+/* Tomme sider svæver lidt */
+.empty .ico { animation: float 3.2s ease-in-out infinite; }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

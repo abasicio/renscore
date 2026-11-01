@@ -1,6 +1,6 @@
 // Gemmer selve app'en, så den åbner med det samme. Kampdata hentes altid frisk.
-const CACHE = 'renscore-v8';
-const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+const CACHE = 'renscore-v9';
+const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'motion.js', 'vendor/gsap.min.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
   // cache: 'reload' går uden om telefonens HTTP-cache (GitHub siger "gem i 10 min"), så det er den nyeste version.
