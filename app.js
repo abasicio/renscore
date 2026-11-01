@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 19; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
+const APP_VERSION = 20; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -145,7 +145,15 @@ async function getJSON(url, { priority = 'auto', signal } = {}) {
   const timer = setTimeout(() => ctl.abort(), 15000);
   signal?.addEventListener('abort', () => ctl.abort());
   try {
-    const r = await fetch(url, { signal: ctl.signal, cache: 'no-store', priority });
+    // Ingen cache:'no-store' her: iPhone-Safari tilføjer så Cache-Control/Pragma-headere, og den
+    // forespørgsel afviser ESPN (403 på CORS-forhåndstjekket). ESPN's svar må højst gemmes 1–6 s alligevel.
+    let r;
+    try {
+      r = await fetch(url, { signal: ctl.signal, priority });
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      r = await fetch(url, { signal: ctl.signal }); // sikkerhedsnet: helt almindelig forespørgsel
+    }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
   } finally { clearTimeout(timer); }
