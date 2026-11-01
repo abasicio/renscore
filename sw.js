@@ -1,5 +1,5 @@
-// Gemmer selve app'en, så den åbner hurtigt. Kampdata hentes altid frisk.
-const CACHE = 'renscore-v5';
+// Gemmer selve app'en, så den åbner med det samme. Kampdata hentes altid frisk.
+const CACHE = 'renscore-v6';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -11,13 +11,19 @@ self.addEventListener('activate', (e) => {
     .then(() => self.clients.claim()));
 });
 
-// Netværk først (så nye versioner kommer med det samme), cache som reserve uden net.
+// App-filerne vises fra cachen med det samme og opdateres i baggrunden (ny version ved næste åbning).
+// streaming.json hentes altid frisk, med cachen som reserve uden net.
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
-  e.respondWith(
-    fetch(e.request)
-      .then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); return res; })
-      .catch(() => caches.match(e.request).then((r) => r || caches.match('index.html')))
-  );
+  const fresh = fetch(e.request).then((res) => {
+    if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
+    return res;
+  });
+  if (url.pathname.endsWith('streaming.json')) {
+    e.respondWith(fresh.catch(() => caches.match(e.request)));
+    return;
+  }
+  e.waitUntil(fresh.catch(() => {}));
+  e.respondWith(caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || fresh.catch(() => caches.match('index.html'))));
 });

@@ -157,7 +157,11 @@ function rowStatus(e) {
   return matchStatus(e);
 }
 
-const logoImg = (url, cls = 'logo') => (url ? `<img class="${cls}" src="${esc(url)}" alt="" loading="lazy">` : `<span class="logo-ph"></span>`);
+/** ESPN's billeder er op til 500×500; deres billedserver kan levere en lille udgave i den størrelse, de vises i. */
+const sized = (url, w, h = w) => (/^https:\/\/a\.espncdn\.com\/i\//.test(url || '')
+  ? `https://a.espncdn.com/combiner/i?img=${url.slice('https://a.espncdn.com'.length)}&w=${w}&h=${h}` : url);
+const logoImg = (url, cls = 'logo', px = cls === '' ? 160 : 80) =>
+  (url ? `<img class="${cls}" src="${esc(sized(url, px))}" alt="" loading="lazy" decoding="async">` : `<span class="logo-ph"></span>`);
 
 // ---------- Tilstand ----------
 
@@ -174,7 +178,7 @@ const data = {
   football: { key: null, days: [], loading: false, failed: false },
   ufc: { key: null, events: [], loading: false, failed: false },
   summary: { key: null, value: null },
-  fav: { overviews: {}, loaded: false },
+  fav: { overviews: storage.get('favOverviews', {}), loaded: false },
   teams: { byLeague: null, loading: false },
 };
 const eventCache = new Map(); // "liga:id" -> event, så kampsiden kan vises med det samme
@@ -188,23 +192,91 @@ function scheduleRefresh(live) {
 
 // ---------- Hentning ----------
 
+/** Kun de felter, visningerne bruger, så det kan gemmes i browseren. */
+function slimEvent(e) {
+  const c = e.competitions?.[0] || {};
+  const team = (t) => t && { id: t.id, displayName: t.displayName, shortDisplayName: t.shortDisplayName, abbreviation: t.abbreviation, logo: logoOf(t), color: t.color, alternateColor: t.alternateColor };
+  return {
+    id: e.id, date: e.date, status: e.status, _league: e._league,
+    competitions: [{ status: c.status, competitors: (c.competitors || []).map((x) => ({ homeAway: x.homeAway, winner: x.winner, score: x.score, form: x.form, team: team(x.team) })) }],
+  };
+}
+
+// Kampe pr. dag: i hukommelsen (skift mellem dage er øjeblikkeligt) og de seneste dage i browseren (hurtig opstart).
+const dayCache = new Map();
+function storedDay(key) {
+  const all = storage.get('days', {});
+  const days = all[key]?.map((x) => ({ league: leagueById(x.id), events: x.events })).filter((x) => x.league);
+  return days || null;
+}
+function storeDay(key, days) {
+  const all = storage.get('days', {});
+  delete all[key];
+  all[key] = days.map((x) => ({ id: x.league.id, events: x.events.map(slimEvent) }));
+  const keys = Object.keys(all);
+  keys.slice(0, Math.max(0, keys.length - 4)).forEach((k) => delete all[k]);
+  storage.set('days', all);
+}
+
+/** Henter alle ligaer for en dag. onPart kaldes, hver gang en liga er hentet. */
+async function fetchDay(day, leagues, onPart) {
+  const parts = new Array(leagues.length);
+  await Promise.all(leagues.map((l, i) =>
+    getJSON(`${API}/soccer/${l.id}/scoreboard?dates=${apiDay(day)}`)
+      .then((r) => { parts[i] = (r.events || []).sort((a, b) => parseDate(a.date) - parseDate(b.date)); })
+      .catch(() => { parts[i] = null; })
+      .finally(() => onPart?.(parts))));
+  return parts;
+}
+
 async function loadFootball() {
   loadTv(ui.day);
   loadStreaming();
   const leagues = LEAGUES.filter((l) => prefs.enabled.has(l.id));
   const key = apiDay(ui.day) + '|' + leagues.map((l) => l.id).join(',');
   const d = data.football;
-  if (d.key !== key) { d.key = key; d.days = []; d.loading = true; d.failed = false; render(); }
-  const results = await Promise.all(leagues.map((l) =>
-    getJSON(`${API}/soccer/${l.id}/scoreboard?dates=${apiDay(ui.day)}`).then((r) => r.events || []).catch(() => null)));
+  if (d.key !== key) {
+    // Vis det, vi allerede har, med det samme. Friske tal kommer bagefter.
+    const known = dayCache.get(key) || storedDay(key);
+    d.key = key; d.days = known || []; d.loading = !known; d.failed = false;
+    render();
+  }
+  const previous = new Map(d.days.map((x) => [x.league.id, x.events]));
+  const build = (parts) => leagues.map((l, i) => ({ league: l, events: parts[i] ?? previous.get(l.id) ?? [] })).filter((x) => x.events.length);
+  let timer = null;
+  const parts = await fetchDay(ui.day, leagues, (p) => {
+    // Vis ligaerne efterhånden som de kommer, men højst ca. 6 gange i sekundet.
+    if (timer || d.key !== key) return;
+    timer = setTimeout(() => { timer = null; if (d.key !== key) return; d.days = build(p); d.loading = false; render(); }, 150);
+  });
+  clearTimeout(timer);
   if (d.key !== key) return; // brugeren har skiftet dag imens
-  d.failed = leagues.length > 0 && results.every((r) => r === null);
-  d.days = leagues.map((l, i) => ({ league: l, events: (results[i] || []).sort((a, b) => parseDate(a.date) - parseDate(b.date)) }))
-    .filter((x) => x.events.length);
+  d.failed = leagues.length > 0 && parts.every((r) => r === null) && !d.days.length;
+  d.days = build(parts);
   d.days.forEach((x) => x.events.forEach((e) => eventCache.set(`${x.league.id}:${e.id}`, e)));
   d.loading = false;
+  if (!parts.every((r) => r === null)) { dayCache.set(key, d.days); storeDay(key, d.days); }
   render();
   scheduleRefresh(d.days.some((x) => x.events.some(isLive)));
+  prefetchDays(leagues);
+}
+
+/** Henter dagen før og efter i baggrunden, så de er klar, når man skifter dag. */
+let prefetched = '';
+function prefetchDays(leagues) {
+  const ids = leagues.map((l) => l.id).join(',');
+  if (prefetched === apiDay(ui.day) + ids) return;
+  prefetched = apiDay(ui.day) + ids;
+  const run = () => [-1, 1].forEach(async (n) => {
+    const day = addDays(ui.day, n), key = apiDay(day) + '|' + ids;
+    if (dayCache.has(key)) return;
+    const parts = await fetchDay(day, leagues);
+    if (parts.every((r) => r === null)) return;
+    const days = leagues.map((l, i) => ({ league: l, events: parts[i] || [] })).filter((x) => x.events.length);
+    days.forEach((x) => x.events.forEach((e) => eventCache.set(`${x.league.id}:${e.id}`, e)));
+    dayCache.set(key, days);
+  });
+  (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(run);
 }
 
 async function loadUfc() {
@@ -216,12 +288,17 @@ async function loadUfc() {
     if (key === 'next') {
       events = (await getJSON(`${API}/mma/ufc/scoreboard`)).events || [];
     } else {
-      // Seneste afsluttede UFC-aften inden for 21 dage.
+      // Seneste afsluttede UFC-aften inden for 21 dage. Gemmes i 6 timer, da det kræver mange opslag.
+      const saved = storage.get('ufcLatest', null);
+      if (saved && Date.now() - saved.at < 6 * 3600e3) events = saved.events;
+    }
+    if (key === 'latest' && !events) {
       const days = [...Array(21).keys()].map((n) => addDays(new Date(), -n));
       const all = (await Promise.all(days.map((day) =>
         getJSON(`${API}/mma/ufc/scoreboard?dates=${apiDay(day)}`).then((r) => r.events || []).catch(() => [])))).flat();
       const done = all.filter(isDone).sort((a, b) => parseDate(b.date) - parseDate(a.date));
       events = done.length ? [done[0]] : [];
+      storage.set('ufcLatest', { at: Date.now(), events });
     }
   } catch { events = null; }
   if (d.key !== key) return;
@@ -314,6 +391,8 @@ async function loadFavorites() {
   const list = await Promise.all(favs.map(teamOverview));
   data.fav.overviews = Object.fromEntries(favs.map((f, i) => [f.id, list[i]]));
   data.fav.loaded = true;
+  const slim = (e) => e && slimEvent(e);
+  storage.set('favOverviews', Object.fromEntries(favs.map((f, i) => [f.id, { live: slim(list[i].live), next: slim(list[i].next), recent: list[i].recent.map(slim) }])));
   render();
   scheduleRefresh(list.some((o) => o.live));
 }
@@ -371,6 +450,8 @@ function teamPair(text) {
 async function loadTv(day) {
   const key = isoDay(day);
   if (tv.days[key] || tv.loading[key]) return;
+  const saved = storage.get('tv', {})[key];
+  if (saved && Date.now() - saved.at < 3 * 3600e3) { tv.days[key] = saved.found; return; }
   tv.loading[key] = true;
   try {
     const qs = Object.keys(TV_CHANNELS).map((id) => 'ch=' + id).join('&');
@@ -397,6 +478,7 @@ async function loadTv(day) {
     // Hold cachen lille: kun de nyeste 500 programmer.
     storage.set('tvTeasers', Object.fromEntries(Object.entries(cache).slice(-500)));
     tv.days[key] = found;
+    storage.set('tv', { ...Object.fromEntries(Object.entries(storage.get('tv', {})).slice(-3)), [key]: { at: Date.now(), found } });
   } catch {
     tv.days[key] = null; // prøv igen ved næste opdatering
   } finally {
@@ -692,7 +774,7 @@ function playerPic(p, color) {
   const fill = isKeeper(p) ? GK_COLOR : color;
   const photo = p.athlete?.headshot?.href;
   return photo
-    ? `<span class="pic"><img src="${esc(photo)}" alt="" loading="lazy"><b style="background:${fill};color:${inkOn(fill)}">${esc(p.jersey || '')}</b></span>`
+    ? `<span class="pic"><img src="${esc(sized(photo, 120, 88))}" alt="" loading="lazy" decoding="async"><b style="background:${fill};color:${inkOn(fill)}">${esc(p.jersey || '')}</b></span>`
     : jerseySvg(fill, p.jersey || '');
 }
 
