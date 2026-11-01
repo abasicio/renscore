@@ -189,6 +189,15 @@ const Motion = (() => {
 
   // ---------- Swipe-hjælp ----------
 
+  /** Fingeren rører skærmen: stop alt, der stadig glider, så det følger fingeren fra første øjeblik. */
+  function grab(main, indKey) {
+    if (!gsap) return;
+    gsap.killTweensOf(main);
+    gsap.killTweensOf(main.querySelectorAll('*'));
+    gsap.set(main.querySelectorAll('main > *'), { clearProps: 'transform,opacity' });
+    document.querySelectorAll(`[data-ind="${indKey}"] > .ind`).forEach((ind) => gsap.killTweensOf(ind));
+  }
+
   /** Mens man swiper: indholdet følger fingeren, og markøren glider mod nabo-dagen/-fanen. */
   function drag(main, dx, canGo, indKey) {
     const pull = canGo ? dx * 0.65 : dx * 0.14; // modstand, når der ikke er mere den vej
@@ -223,6 +232,8 @@ const Motion = (() => {
     if (!on()) { run(); return; }
     const r = main.getBoundingClientRect();
     const ghost = main.cloneNode(true);
+    // Kun det, der kan ses, skal med (en dag kan have 60+ kampe).
+    [...main.children].forEach((child, i) => { if (child.getBoundingClientRect().top > window.innerHeight) ghost.children[i]?.remove(); });
     Object.assign(ghost.style, {
       position: 'fixed', top: r.top + 'px', left: r.left + 'px', width: r.width + 'px',
       height: Math.max(0, window.innerHeight - r.top) + 'px', overflow: 'hidden', margin: '0', zIndex: '5', pointerEvents: 'none',
@@ -233,11 +244,11 @@ const Motion = (() => {
     // Går man tilbage, tegnes den nye side først lidt senere (popstate); så glider den ind som en almindelig side.
     hint = slideIn ? { dir, fromSwipe: true } : { dir };
     run();
-    gsap.to(ghost, { x: -dir * window.innerWidth * 0.9, opacity: 0, duration: 0.32, ease: 'power2.out', onComplete: () => ghost.remove() });
+    gsap.to(ghost, { x: -dir * window.innerWidth * 0.9, opacity: 0, duration: 0.24, ease: 'power2.out', onComplete: () => ghost.remove() });
     const next = document.querySelector('#app main');
     if (!next || next === main || !slideIn) return;
-    gsap.fromTo(next, { x: dir * window.innerWidth * 0.55, opacity: 0.3 },
-      { x: 0, opacity: 1, duration: 0.38, ease: 'power3.out', clearProps: 'transform,opacity' });
+    gsap.fromTo(next, { x: dir * window.innerWidth * 0.4, opacity: 0.4 },
+      { x: 0, opacity: 1, duration: 0.26, ease: 'power3.out', clearProps: 'transform,opacity' });
   }
 
   // ---------- Træk for at opdatere ----------
@@ -289,17 +300,17 @@ const Motion = (() => {
   // Lille "tryk"-fornemmelse på knapper og kampe.
   if (gsap) {
     document.addEventListener('pointerdown', (e) => {
-      const el = e.target.closest('.chip, .day, .iconbtn, .live-btn, .pill, .btn, .sidepick button, .star, .tabbar a');
+      const el = e.target.closest('.chip, .day, .iconbtn, .live-btn, .today-btn, .pill, .btn, .sidepick button, .star, .tabbar a');
       if (el && on()) gsap.to(el, { scale: 0.92, duration: 0.12, ease: 'power2.out' });
     }, { passive: true });
-    const up = () => document.querySelectorAll('.chip, .day, .iconbtn, .live-btn, .pill, .btn, .sidepick button, .star, .tabbar a')
+    const up = () => document.querySelectorAll('.chip, .day, .iconbtn, .live-btn, .today-btn, .pill, .btn, .sidepick button, .star, .tabbar a')
       .forEach((el) => { if (gsap.getProperty(el, 'scale') !== 1) gsap.to(el, { scale: 1, duration: 0.45, ease: 'elastic.out(1.2, 0.5)', clearProps: 'transform' }); });
     document.addEventListener('pointerup', up, { passive: true });
     document.addEventListener('pointercancel', up, { passive: true });
   }
 
   return {
-    snapshot, after, drag, settle, commit, pull, release,
+    snapshot, after, grab, drag, settle, commit, pull, release,
     set hint(v) { hint = v; },
     get enabled() { return on(); },
   };

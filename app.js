@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 11; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
+const APP_VERSION = 12; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -230,6 +230,17 @@ async function fetchDay(day, leagues, onPart) {
   return parts;
 }
 
+/** Tilbage til i dag (og toppen af listen). */
+function goToday() {
+  const today = startOfDay(new Date());
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (sameDay(ui.day, today)) return;
+  Motion.hint = { dir: Math.sign(today - ui.day) };
+  setDay(today);
+  render();
+  load();
+}
+
 /** Skifter dag. LIVE gælder kun i dag, så filteret slås fra på andre dage. */
 function setDay(day) {
   ui.day = day;
@@ -276,7 +287,7 @@ function prefetchDays(leagues) {
   const ids = leagues.map((l) => l.id).join(',');
   if (prefetched === apiDay(ui.day) + ids) return;
   prefetched = apiDay(ui.day) + ids;
-  const run = () => [-1, 1].forEach(async (n) => {
+  const run = () => [-1, 1, -2, 2].forEach(async (n) => {
     const day = addDays(ui.day, n), key = apiDay(day) + '|' + ids;
     if (dayCache.has(key)) return;
     const parts = await fetchDay(day, leagues);
@@ -636,6 +647,7 @@ function viewScores() {
   let head = `<header class="top">
     <div class="row">
       <h1>RenScore</h1>
+      ${ui.sport === 'football' && !sameDay(ui.day, today) ? `<button class="today-btn" data-action="today">${sameDay(ui.day, addDays(today, -1)) || ui.day < today ? '' : '‹ '}I dag${ui.day < today ? ' ›' : ''}</button>` : ''}
       ${ui.sport === 'football' ? `<button class="live-btn ${ui.liveOnly ? 'on' : ''}" data-action="live"><span class="dot"></span>LIVE${liveCount ? ' ' + liveCount : ''}</button>` : ''}
       <button class="iconbtn" data-action="refresh" aria-label="Opdater">${REFRESH_ICON}</button>
     </div>
@@ -1222,6 +1234,7 @@ function viewSettings() {
 
 const actions = {
   sport(el) { Motion.hint = { dir: el.dataset.v === 'mma' ? 1 : -1 }; ui.sport = el.dataset.v; render(); load(); },
+  today() { goToday(); },
   live() {
     ui.liveOnly = !ui.liveOnly;
     // Live betyder "lige nu", uanset hvilken dag man stod på.
@@ -1259,6 +1272,15 @@ const actions = {
     render();
   },
 };
+
+// Tryk på den fane, man allerede står på: til toppen (og på Kampe: til i dag), som i iOS-apps.
+document.getElementById('tabbar').addEventListener('click', (e) => {
+  const a = e.target.closest('a');
+  if (!a || a.getAttribute('href') !== (location.hash || '#/')) return;
+  e.preventDefault();
+  if (a.dataset.tab === 'scores') goToday();
+  else window.scrollTo({ top: 0, behavior: 'smooth' });
+});
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -1329,6 +1351,8 @@ app.addEventListener('touchmove', (e) => {
     if (Math.abs(dx) > Math.abs(dy) * 1.2) {
       swipe.lock = 'x';
       swipe.next = { 1: swipeAction(1, swipe.edge), '-1': swipeAction(-1, swipe.edge) };
+      swipe.main = app.querySelector('main') || swipe.main; // kan være tegnet om siden fingeren landede
+      Motion.grab(swipe.main, swipeIndicator());
     } else if (dy > 0 && swipe.top && standalone && route().name !== 'settings') {
       swipe.lock = 'pull';
     } else { swipe = null; return; } // almindelig lodret scroll
