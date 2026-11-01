@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 15; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
+const APP_VERSION = 16; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -257,6 +257,12 @@ async function loadFootball() {
   const key = footballKey(ui.day);
   const d = data.football;
   if (d.key !== key) {
+    // Den valgte dag går forud for alt andet: stop forhåndshentning og den dag, man lige har forladt.
+    prefetchCtl?.abort(); prefetched = '';
+    dayCtl?.abort();
+  }
+  const ctl = dayCtl = new AbortController();
+  if (d.key !== key) {
     // Vis det, vi allerede har, med det samme. Friske tal kommer bagefter.
     const known = dayCache.get(key) || storedDay(key);
     d.key = key; d.days = known || []; d.loading = !known; d.failed = false;
@@ -265,13 +271,20 @@ async function loadFootball() {
   const previous = new Map(d.days.map((x) => [x.league.id, x.events]));
   const build = (parts) => leagues.map((l, i) => ({ league: l, events: parts[i] ?? previous.get(l.id) ?? [] })).filter((x) => x.events.length);
   let timer = null;
-  const parts = await fetchDay(ui.day, leagues, (p) => {
+  let parts = await fetchDay(ui.day, leagues, (p) => {
     // Vis ligaerne efterhånden som de kommer, men højst ca. 6 gange i sekundet.
     if (timer || d.key !== key) return;
     timer = setTimeout(() => { timer = null; if (d.key !== key) return; d.days = build(p); d.loading = false; render(); }, 150);
-  });
+  }, { signal: ctl.signal });
   clearTimeout(timer);
   if (d.key !== key) return; // brugeren har skiftet dag imens
+  if (leagues.length && parts.every((r) => r === null)) {
+    // Alt fejlede (typisk et kort hul i forbindelsen): prøv én gang mere, før vi siger "Ingen forbindelse".
+    await new Promise((r) => setTimeout(r, 1500));
+    if (d.key !== key) return;
+    parts = await fetchDay(ui.day, leagues, null, { signal: ctl.signal });
+    if (d.key !== key) return;
+  }
   d.failed = leagues.length > 0 && parts.every((r) => r === null) && !d.days.length;
   d.days = build(parts);
   d.days.forEach((x) => x.events.forEach((e) => eventCache.set(`${x.league.id}:${e.id}`, e)));
@@ -293,7 +306,7 @@ function prefetchDays(leagues) {
   const center = ui.day;
   // Én dag ad gangen og med lav prioritet, så det aldrig står i vejen for det, man kigger på.
   setTimeout(async () => {
-    for (const n of [1, -1, 2, -2]) {
+    for (const n of [1, -1]) {
       if (ctl.signal.aborted) return;
       const day = addDays(center, n), key = apiDay(day) + '|' + ids;
       if (dayCache.has(key)) continue;
@@ -302,16 +315,23 @@ function prefetchDays(leagues) {
       const days = leagues.map((l, i) => ({ league: l, events: parts[i] || [] })).filter((x) => x.events.length);
       days.forEach((x) => x.events.forEach((e) => eventCache.set(`${x.league.id}:${e.id}`, e)));
       dayCache.set(key, days);
-      warmLogos(days);
+      await warmLogos(days, ctl.signal);
     }
   }, 400);
 }
 let prefetchCtl = null;
+let dayCtl = null;
 
-/** Henter og afkoder logoerne på forhånd, så de står klar, når man swiper til dagen. */
-function warmLogos(days) {
-  const urls = new Set(days.flatMap((x) => x.events.flatMap((e) => (e.competitions?.[0]?.competitors || []).map((c) => sized(logoOf(c.team), 80)))));
-  urls.forEach((u) => { if (!u) return; const img = new Image(); img.decoding = 'async'; img.src = u; img.decode?.().catch(() => {}); });
+/** Henter logoerne på forhånd – 6 ad gangen, så telefonens forbindelse ikke bliver proppet. */
+async function warmLogos(days, signal) {
+  const urls = [...new Set(days.flatMap((x) => x.events.flatMap((e) => (e.competitions?.[0]?.competitors || []).map((c) => sized(logoOf(c.team), 80)))))].filter(Boolean);
+  for (let i = 0; i < urls.length && !signal?.aborted; i += 6) {
+    await Promise.all(urls.slice(i, i + 6).map((u) => new Promise((done) => {
+      const img = new Image();
+      img.onload = img.onerror = done;
+      img.src = u;
+    })));
+  }
 }
 
 async function loadUfc() {
