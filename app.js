@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 14; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
+const APP_VERSION = 15; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -611,9 +611,17 @@ function viewKey(r) {
 }
 
 let renderPending = false;
+let renderPendingTimer = null;
 function render() {
   // Midt i et swipe/træk venter vi; ellers mister man fingeren, når data kommer ind.
-  if (swipe?.lock) { renderPending = true; return; }
+  // Sikring: har fingeren ikke rørt sig i 0,8 s (fx hvis iOS slugte "slip"), tegner vi alligevel.
+  if (swipe?.lock && performance.now() - (swipe.lastT || swipe.start || 0) < 800) {
+    renderPending = true;
+    clearTimeout(renderPendingTimer);
+    renderPendingTimer = setTimeout(() => { if (renderPending) { swipe = null; render(); } }, 900);
+    return;
+  }
+  if (swipe?.lock) swipe = null;
   renderPending = false;
   const r = route();
   const before = typeof Motion !== 'undefined' ? Motion.snapshot() : null;
@@ -1366,7 +1374,7 @@ app.addEventListener('touchstart', (e) => {
   const edge = t.clientX < 24;
   if (edge && !navigator.standalone) return;
   const main = app.querySelector('main');
-  if (main) swipe = { x: t.clientX, y: t.clientY, t: Date.now(), edge, main, lock: null, dx: 0, dy: 0, top: window.scrollY <= 0 };
+  if (main) swipe = { x: t.clientX, y: t.clientY, t: Date.now(), start: performance.now(), edge, main, lock: null, dx: 0, dy: 0, top: window.scrollY <= 0 };
 }, { passive: true });
 
 app.addEventListener('touchmove', (e) => {
@@ -1409,8 +1417,8 @@ function endSwipe() {
   Motion.commit(s.main, dir, act.run, act.slide !== false, s.vx);
   flush();
 }
-app.addEventListener('touchend', endSwipe);
-app.addEventListener('touchcancel', endSwipe);
+document.addEventListener('touchend', endSwipe, true);
+document.addEventListener('touchcancel', endSwipe, true);
 
 // ---------- Start ----------
 
