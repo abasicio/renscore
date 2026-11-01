@@ -79,7 +79,7 @@ const Motion = (() => {
   }
 
   /** Animerer det, der er nyt siden før-billedet. */
-  function appear(before, all) {
+  function appear(before, all, blocksToo = true) {
     const fresh = {};
     for (const [name, g] of Object.entries(GROUPS)) {
       const old = all ? new Set() : before.groups[name];
@@ -87,7 +87,7 @@ const Motion = (() => {
     }
     const inView = (el) => el.getBoundingClientRect().top < window.innerHeight + 40;
 
-    const blocks = fresh.block.filter(inView);
+    const blocks = blocksToo ? fresh.block.filter(inView) : [];
     if (blocks.length) {
       gsap.fromTo(blocks, { y: 18, opacity: 0 },
         { y: 0, opacity: 1, duration: 0.5, ease: 'power3.out', stagger: 0.045, clearProps: 'transform,opacity' });
@@ -164,14 +164,14 @@ const Motion = (() => {
         const d = (DEPTH[routeName] ?? 0) - (DEPTH[lastRoute] ?? 0);
         const dir = d !== 0 ? Math.sign(d) : Math.sign((TAB_ORDER[routeName] ?? 0) - (TAB_ORDER[lastRoute] ?? 0)) || 1;
         if (!h?.fromSwipe) slidePage(dir);
-        appear(before, true);
+        appear(before, true, false);
         bounceTab();
       } else if (keyChanged) {
         if (h?.dir && !h.fromSwipe) {
           const main = document.querySelector('#app main');
           if (main) gsap.fromTo(main, { x: h.dir * 28, opacity: 0 }, { x: 0, opacity: 1, duration: 0.36, ease: 'power3.out', clearProps: 'transform,opacity' });
         }
-        appear(before, true);
+        appear(before, true, !h?.dir);
       } else {
         appear(before, false);
         goals(before);
@@ -189,7 +189,7 @@ const Motion = (() => {
   // ---------- Swipe-hjælp ----------
 
   /** Mens man swiper: indholdet følger fingeren, og markøren glider mod nabo-dagen/-fanen. */
-  function drag(main, dx, canGo) {
+  function drag(main, dx, canGo, indKey) {
     const pull = canGo ? dx * 0.65 : dx * 0.14; // modstand, når der ikke er mere den vej
     const fade = 1 - Math.min(Math.abs(pull) / 520, 0.35);
     if (on()) gsap.set(main, { x: pull, opacity: fade });
@@ -197,7 +197,7 @@ const Motion = (() => {
     if (!canGo) return;
     const progress = Math.min(Math.abs(dx) / (window.innerWidth * 0.6), 1);
     const dir = dx < 0 ? 1 : -1;
-    document.querySelectorAll('#app [data-ind]').forEach((box) => {
+    document.querySelectorAll(`[data-ind="${indKey}"]`).forEach((box) => {
       const ind = box.querySelector(':scope > .ind');
       const sel = box.querySelector(':scope > .sel');
       const sibs = [...box.querySelectorAll(':scope > :not(.ind)')];
@@ -211,26 +211,32 @@ const Motion = (() => {
   function settle(main) {
     if (!on()) { main.style.transform = ''; main.style.opacity = ''; return; }
     gsap.to(main, { x: 0, opacity: 1, duration: 0.5, ease: 'back.out(1.4)', clearProps: 'transform,opacity' });
-    document.querySelectorAll('#app [data-ind]').forEach((box) => {
+    document.querySelectorAll('[data-ind]').forEach((box) => {
       const ind = box.querySelector(':scope > .ind'), r = indRect(box);
       if (ind && r) gsap.to(ind, { x: r.x, width: r.w, duration: 0.4, ease: 'power3.out' });
     });
   }
 
-  /** Slip og skift: det gamle glider ud, run() tegner det nye, som glider ind fra den anden side. */
+  /** Slip og skift: en kopi af det gamle glider ud, mens det nye glider ind – på samme tid. */
   function commit(main, dir, run, slideIn = true) {
     if (!on()) { run(); return; }
-    gsap.to(main, {
-      x: -dir * window.innerWidth * 0.45, opacity: 0, duration: 0.16, ease: 'power2.in',
-      onComplete: () => {
-        // Går man tilbage, tegnes den nye side først lidt senere (hashchange); så glider den ind som en almindelig side.
-        hint = slideIn ? { dir, fromSwipe: true } : { dir };
-        run();
-        const next = document.querySelector('#app main');
-        if (!next || next === main || !slideIn) return;
-        gsap.fromTo(next, { x: dir * window.innerWidth * 0.3, opacity: 0 }, { x: 0, opacity: 1, duration: 0.42, ease: 'power3.out', clearProps: 'transform,opacity' });
-      },
+    const r = main.getBoundingClientRect();
+    const ghost = main.cloneNode(true);
+    Object.assign(ghost.style, {
+      position: 'fixed', top: r.top + 'px', left: r.left + 'px', width: r.width + 'px',
+      height: Math.max(0, window.innerHeight - r.top) + 'px', overflow: 'hidden', margin: '0', zIndex: '5', pointerEvents: 'none',
     });
+    gsap.set(ghost, { x: gsap.getProperty(main, 'x'), opacity: gsap.getProperty(main, 'opacity') });
+    document.body.appendChild(ghost);
+    gsap.set(main, { opacity: 0 });
+    // Går man tilbage, tegnes den nye side først lidt senere (popstate); så glider den ind som en almindelig side.
+    hint = slideIn ? { dir, fromSwipe: true } : { dir };
+    run();
+    gsap.to(ghost, { x: -dir * window.innerWidth * 0.9, opacity: 0, duration: 0.32, ease: 'power2.out', onComplete: () => ghost.remove() });
+    const next = document.querySelector('#app main');
+    if (!next || next === main || !slideIn) return;
+    gsap.fromTo(next, { x: dir * window.innerWidth * 0.55, opacity: 0.3 },
+      { x: 0, opacity: 1, duration: 0.38, ease: 'power3.out', clearProps: 'transform,opacity' });
   }
 
   // ---------- Træk for at opdatere ----------

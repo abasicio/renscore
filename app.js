@@ -229,12 +229,21 @@ async function fetchDay(day, leagues, onPart) {
   return parts;
 }
 
+/** Skifter dag. LIVE gælder kun i dag, så filteret slås fra på andre dage. */
+function setDay(day) {
+  ui.day = day;
+  if (!sameDay(day, new Date())) ui.liveOnly = false;
+}
+
+const footballKey = (day) => apiDay(day) + '|' + LEAGUES.filter((l) => prefs.enabled.has(l.id)).map((l) => l.id).join(',');
+
 async function loadFootball() {
   loadTv(ui.day);
   loadStreaming();
   const leagues = LEAGUES.filter((l) => prefs.enabled.has(l.id));
-  const key = apiDay(ui.day) + '|' + leagues.map((l) => l.id).join(',');
+  const key = footballKey(ui.day);
   const d = data.football;
+  prefetchDays(leagues);
   if (d.key !== key) {
     // Vis det, vi allerede har, med det samme. Friske tal kommer bagefter.
     const known = dayCache.get(key) || storedDay(key);
@@ -258,7 +267,6 @@ async function loadFootball() {
   if (!parts.every((r) => r === null)) { dayCache.set(key, d.days); storeDay(key, d.days); }
   render();
   scheduleRefresh(d.days.some((x) => x.events.some(isLive)));
-  prefetchDays(leagues);
 }
 
 /** Henter dagen før og efter i baggrunden, så de er klar, når man skifter dag. */
@@ -276,7 +284,7 @@ function prefetchDays(leagues) {
     days.forEach((x) => x.events.forEach((e) => eventCache.set(`${x.league.id}:${e.id}`, e)));
     dayCache.set(key, days);
   });
-  (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(run);
+  setTimeout(run, 300); // lige efter den valgte dag er sendt af sted
 }
 
 async function loadUfc() {
@@ -565,7 +573,11 @@ function viewKey(r) {
   return r.name;
 }
 
+let renderPending = false;
 function render() {
+  // Midt i et swipe/træk venter vi; ellers mister man fingeren, når data kommer ind.
+  if (swipe?.lock) { renderPending = true; return; }
+  renderPending = false;
   const r = route();
   const before = typeof Motion !== 'undefined' ? Motion.snapshot() : null;
   document.querySelectorAll('#tabbar a').forEach((a) => {
@@ -614,7 +626,9 @@ const REFRESH_ICON = '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7
 
 function viewScores() {
   const f = data.football;
-  const liveCount = f.days.reduce((n, x) => n + x.events.filter(isLive).length, 0);
+  // Tallet på LIVE-knappen er altid dagens live-kampe, også når man kigger på en anden dag.
+  const todays = sameDay(ui.day, new Date()) ? f.days : dayCache.get(footballKey(new Date())) || [];
+  const liveCount = todays.reduce((n, x) => n + x.events.filter(isLive).length, 0);
   const today = startOfDay(new Date());
   const days = [...Array(15).keys()].map((i) => addDays(today, i - 7));
 
@@ -1203,9 +1217,14 @@ function viewSettings() {
 
 const actions = {
   sport(el) { Motion.hint = { dir: el.dataset.v === 'mma' ? 1 : -1 }; ui.sport = el.dataset.v; render(); load(); },
-  live() { ui.liveOnly = !ui.liveOnly; render(); },
+  live() {
+    ui.liveOnly = !ui.liveOnly;
+    // Live betyder "lige nu", uanset hvilken dag man stod på.
+    if (ui.liveOnly && !sameDay(ui.day, new Date())) { Motion.hint = { dir: 1 }; ui.day = startOfDay(new Date()); load(); }
+    render();
+  },
   refresh() { load(); },
-  day(el) { const d = new Date(Number(el.dataset.v)); Motion.hint = { dir: Math.sign(d - ui.day) }; ui.day = d; render(); load(); },
+  day(el) { const d = new Date(Number(el.dataset.v)); Motion.hint = { dir: Math.sign(d - ui.day) }; setDay(d); render(); load(); },
   ufc(el) { Motion.hint = { dir: el.dataset.v === 'latest' ? 1 : -1 }; ui.ufcMode = el.dataset.v; render(); load(); },
   back() { if (history.length > 1) history.back(); else location.hash = '#/'; },
   dtab(el) {
@@ -1256,7 +1275,7 @@ function swipeAction(dir, edge) {
   if (r.name === 'scores' && ui.sport === 'football') {
     const day = addDays(ui.day, dir);
     if (Math.abs(Math.round((day - startOfDay(new Date())) / 864e5)) > 7) return null;
-    return { run: () => { ui.day = day; render(); load(); } };
+    return { run: () => { setDay(day); render(); load(); } };
   }
   if (r.name === 'scores') {
     const modes = ['next', 'latest'], i = modes.indexOf(ui.ufcMode) + dir;
@@ -1271,6 +1290,14 @@ function swipeAction(dir, edge) {
 const standalone = navigator.standalone === true || window.matchMedia?.('(display-mode: standalone)').matches || /[?&]ptr\b/.test(location.search);
 
 let swipe = null;
+
+/** Den markør, der hører til det, man swiper mellem. */
+function swipeIndicator() {
+  const r = route();
+  if (r.name === 'match') return 'utabs';
+  if (r.name === 'scores') return ui.sport === 'football' ? 'days' : 'ufc';
+  return 'tabbar';
+}
 
 app.addEventListener('touchstart', (e) => {
   swipe = null;
@@ -1299,7 +1326,7 @@ app.addEventListener('touchmove', (e) => {
   e.preventDefault();
   swipe.dx = dx;
   swipe.dy = dy;
-  if (swipe.lock === 'x') Motion.drag(swipe.main, dx, !!swipe.next[dx < 0 ? 1 : -1]);
+  if (swipe.lock === 'x') Motion.drag(swipe.main, dx, !!swipe.next[dx < 0 ? 1 : -1], swipeIndicator());
   else swipe.ready = Motion.pull(swipe.main, Math.max(0, dy));
 }, { passive: false });
 
@@ -1308,11 +1335,13 @@ function endSwipe() {
   swipe = null;
   if (!s?.lock) return;
   if (s.lock === 'pull') { Motion.release(s.main, s.ready, () => load()); return; }
+  const flush = () => { if (renderPending) render(); };
   const dir = s.dx < 0 ? 1 : -1;
   const fast = Math.abs(s.dx) > 35 && Date.now() - s.t < 280;
   const act = (Math.abs(s.dx) > 70 || fast) ? s.next[dir] : null;
-  if (!act) return Motion.settle(s.main);
+  if (!act) { Motion.settle(s.main); flush(); return; }
   Motion.commit(s.main, dir, act.run, act.slide !== false);
+  flush();
 }
 app.addEventListener('touchend', endSwipe);
 app.addEventListener('touchcancel', endSwipe);
