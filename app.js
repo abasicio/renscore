@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 28; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
+const APP_VERSION = 29; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -1377,7 +1377,7 @@ const actions = {
     render();
   },
   refresh() { load(); },
-  day(el) { const d = new Date(Number(el.dataset.v)); Motion.hint = { dir: Math.sign(d - ui.day) }; setDay(d); render(); load(); },
+  day(el) { const d = new Date(Number(el.dataset.v)); Motion.hint = { dir: Math.sign(d - ui.day) }; window.scrollTo(0, 0); setDay(d); render(); load(); },
   ufc(el) { Motion.hint = { dir: el.dataset.v === 'latest' ? 1 : -1 }; ui.ufcMode = el.dataset.v; render(); load(); },
   back() {
     const from = location.hash;
@@ -1437,16 +1437,16 @@ function swipeAction(dir, edge) {
     const i = tabs.indexOf(ui.detailTab) + dir;
     if (i < 0) return { run: actions.back, slide: false }; // højre på første fane = tilbage til listen
     if (i >= tabs.length) return null;
-    return { run: () => { ui.detailTab = tabs[i]; render(); } };
+    return { run: () => { window.scrollTo(0, 0); ui.detailTab = tabs[i]; render(); } };
   }
   if (r.name === 'scores' && ui.sport === 'football') {
     const day = addDays(ui.day, dir);
     if (Math.abs(Math.round((day - startOfDay(new Date())) / 864e5)) > 7) return null;
-    return { run: () => { setDay(day); render(); load(); } };
+    return { run: () => { window.scrollTo(0, 0); setDay(day); render(); load(); } };
   }
   if (r.name === 'scores') {
     const modes = ['next', 'latest'], i = modes.indexOf(ui.ufcMode) + dir;
-    return modes[i] ? { run: () => { ui.ufcMode = modes[i]; render(); load(); } } : null;
+    return modes[i] ? { run: () => { window.scrollTo(0, 0); ui.ufcMode = modes[i]; render(); load(); } } : null;
   }
   const i = MAIN_TABS.indexOf(r.name === 'fav' ? '#/fav' : '#/settings') + dir;
   if (!MAIN_TABS[i]) return null;

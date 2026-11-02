@@ -250,7 +250,7 @@ const Motion = (() => {
     // En tom pladsholder i samme højde holder siden stille, indtil det nye er tegnet.
     const ghost = main;
     const holder = document.createElement('main');
-    holder.style.height = main.offsetHeight + 'px';
+    holder.style.height = Math.min(main.offsetHeight, window.innerHeight) + 'px';
     main.replaceWith(holder);
     ghost.classList.add('swipe-ghost');
     Object.assign(ghost.style, {
