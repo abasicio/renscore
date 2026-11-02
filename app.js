@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 35;
+const APP_VERSION = 36;
 window.APP_VERSION_DBG = APP_VERSION; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
@@ -294,6 +294,7 @@ function goToday() {
 
 /** Skifter dag. LIVE gælder kun i dag, så filteret slås fra på andre dage. */
 function setDay(day) {
+  ui.dayDir = Math.sign(day - ui.day) || ui.dayDir || 1; // retningen man bladrer i (til forhåndshentning)
   ui.day = day;
   if (!sameDay(day, new Date())) ui.liveOnly = false;
 }
@@ -317,6 +318,7 @@ async function loadFootball() {
     const known = dayCache.get(key) || storedDay(key);
     d.key = key; d.days = known || []; d.loading = !known; d.failed = false;
     render();
+    if (known) prefetchDays(leagues); // dagen står der allerede – hent de næste med det samme
   }
   const previous = new Map(d.days.map((x) => [x.league.id, x.events]));
   const build = (parts) => leagues.map((l, i) => ({ league: l, events: parts[i] ?? previous.get(l.id) ?? [] })).filter((x) => x.events.length);
@@ -357,8 +359,10 @@ function prefetchDays(leagues) {
   const ctl = prefetchCtl = new AbortController();
   const center = ui.day;
   // Én dag ad gangen og med lav prioritet, så det aldrig står i vejen for det, man kigger på.
+  const dir = ui.dayDir || 1;
   setTimeout(async () => {
-    for (const n of [1, -1]) {
+    // To dage i den retning, man bladrer, og én bagud.
+    for (const n of [dir, 2 * dir, -dir]) {
       if (ctl.signal.aborted) return;
       const day = addDays(center, n), key = apiDay(day) + '|' + ids;
       if (dayCache.has(key)) continue;
@@ -369,7 +373,7 @@ function prefetchDays(leagues) {
       dayCache.set(key, days);
       await warmLogos(days, ctl.signal);
     }
-  }, 400);
+  }, 0);
 }
 let prefetchCtl = null;
 let dayCtl = null;

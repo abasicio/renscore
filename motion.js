@@ -37,6 +37,7 @@ const Motion = (() => {
   let lastKey = null;
   let lastRoute = null;
   let hint = null; // { dir, fromSwipe } sat af app.js lige før en tegning
+  let stripGoal = null; // hvor dagsrækken er på vej hen
 
   // Sider i rækkefølge, så vi ved om man går "ind" (kampside) eller til siden (faner).
   const DEPTH = { scores: 0, fav: 0, settings: 0, match: 1 };
@@ -184,11 +185,20 @@ const Motion = (() => {
 
     placeIndicators(before, keyChanged);
 
-    // Dagsrækken: bevar brugerens scroll ved opdateringer; glid til den nye dag ved dagsskift.
+    // Dagsrækken: glid til den nye dag ved dagsskift. Kommer der en gentegning, mens den glider (fx når
+    // kampene er hentet), fortsætter den mod samme mål på den nye række – ellers stoppede den halvvejs.
     if (strip && before.daysScroll != null) {
-      const target = strip.scrollLeft;
-      if (!keyChanged || routeChanged) strip.scrollLeft = before.daysScroll;
-      else if (on()) { strip.scrollLeft = before.daysScroll; gsap.to(strip, { scrollLeft: target, duration: 0.25, ease: 'power2.out' }); }
+      const target = strip.scrollLeft; // centreret på den valgte dag
+      if (keyChanged && !routeChanged) {
+        stripGoal = { target, until: performance.now() + 400 };
+        if (on()) { strip.scrollLeft = before.daysScroll; gsap.to(strip, { scrollLeft: target, duration: 0.25, ease: 'power2.out' }); }
+      } else if (stripGoal && performance.now() < stripGoal.until) {
+        strip.scrollLeft = before.daysScroll;
+        if (on()) gsap.to(strip, { scrollLeft: stripGoal.target, duration: Math.max(0.05, (stripGoal.until - performance.now()) / 1600), ease: 'power2.out' });
+        else strip.scrollLeft = stripGoal.target;
+      } else if (!routeChanged || !keyChanged) {
+        strip.scrollLeft = before.daysScroll; // brugerens egen scroll bevares ved almindelige opdateringer
+      }
     }
 
     if (on()) {
@@ -298,7 +308,7 @@ const Motion = (() => {
         run();
         const next = document.querySelector('#app main');
         if (!next || next === main || !slideIn) return;
-        gsap.fromTo(next, { x: dir * W * 0.5 }, { x: 0, duration: 0.3, ease: 'power3.out', clearProps: 'transform' });
+        gsap.fromTo(next, { x: dir * W * 0.4 }, { x: 0, duration: 0.22, ease: 'power3.out', clearProps: 'transform' });
       },
     });
   }
