@@ -231,18 +231,22 @@ const Motion = (() => {
   }
 
   /** Fingeren rører skærmen: stop alt, der stadig glider, så det følger fingeren fra første øjeblik. */
-  function grab(main, indKey) {
-    // Hurtige swipes: gør den forrige overgang FÆRDIG med det samme (i stedet for at fryse den midtvejs),
-    // så det nye swipe altid starter fra en ren skærm.
-    document.querySelectorAll('body > .swipe-ghost').forEach(dropGhost);
-    if (!gsap) return;
+  function grab() {
+    document.querySelectorAll('body > .swipe-ghost').forEach(dropGhost); // rester fra ældre versioner
+    if (!gsap) return document.querySelector('#app main');
     const finish = (targets) => gsap.getTweensOf(targets).forEach((t) => t.progress(1));
-    finish(main);
-    finish(main.querySelectorAll('*'));
+    // To gange: at gøre "ud" færdig tegner den nye side, som selv har et "ind" i gang.
+    for (let i = 0; i < 2; i++) {
+      const main = document.querySelector('#app main');
+      if (!main) break;
+      finish(main);
+      finish(main.querySelectorAll('*'));
+    }
     finish(document.querySelectorAll('[data-ind] > .ind'));
     finish(document.querySelectorAll('.days'));
-    gsap.set(main, { clearProps: 'transform,opacity' });
-    gsap.set(main.querySelectorAll(':scope > *'), { clearProps: 'transform,opacity' });
+    const main = document.querySelector('#app main');
+    if (main) { gsap.set(main, { clearProps: 'transform,opacity' }); gsap.set(main.querySelectorAll(':scope > *'), { clearProps: 'transform,opacity' }); }
+    return main;
   }
 
   /** Mens man swiper: indholdet følger fingeren, og markøren glider mod nabo-dagen/-fanen. */
@@ -275,49 +279,28 @@ const Motion = (() => {
   }
 
   /**
-   * Slip og skift – som at bladre i Fotos: den gamle side fortsætter i fingerens retning og fart,
-   * og den nye ligger lige ved siden af og følger med. Én sammenhængende bevægelse, ingen fade.
-   * velocity er fingerens fart i px/ms ved slip.
+   * Slip og skift. Der findes altid kun ÉN side: den nuværende fortsætter ud i fingerens retning og fart,
+   * derefter tegnes den nye og glider ind. (En løs kopi af den gamle side oven på den nye kunne blive
+   * hængende på iPhone ved hurtige swipes – derfor ingen kopi.)
    */
   function commit(main, dir, run, slideIn = true, velocity = 0) {
     if (!on()) { run(); return; }
     const W = window.innerWidth;
     const x0 = gsap.getProperty(main, 'x') || 0;
-    const r = main.getBoundingClientRect();
-    document.querySelectorAll('body > .swipe-ghost').forEach((g) => g.remove());
-    // Det gamle indhold selv glider ud – billederne er allerede tegnet, så intet blinker.
-    // En tom pladsholder i samme højde holder siden stille, indtil det nye er tegnet.
-    const ghost = main;
-    const holder = document.createElement('main');
-    holder.style.height = Math.min(main.offsetHeight, window.innerHeight) + 'px';
-    main.replaceWith(holder);
-    ghost.classList.add('swipe-ghost');
-    ghost._born = performance.now();
-    Object.assign(ghost.style, {
-      position: 'fixed', top: r.top + 'px', left: (r.left - x0) + 'px', width: r.width + 'px',
-      margin: '0', zIndex: '5', pointerEvents: 'none',
-    });
-    gsap.set(ghost, { x: x0 });
-    document.body.appendChild(ghost);
-    // Varighed ud fra den resterende vej og fingerens fart, så farten fortsætter uden hop.
-    const remaining = W - Math.abs(x0);
-    const speed = Math.max(Math.abs(velocity), 1.1); // px/ms
-    const duration = Math.min(0.42, Math.max(0.26, (remaining / speed / 1000) * 2));
-    const ease = 'power2.out'; // starter hurtigt (som fingeren) og lander blødt
+    const speed = Math.max(Math.abs(velocity), 1.4); // px/ms
+    const out = Math.min(0.14, Math.max(0.06, (W - Math.abs(x0)) / speed / 1000));
+    Debug.log(`skift ${dir > 0 ? '→' : '←'} ud ${Math.round(out * 1000)} ms`);
     // Går man tilbage, tegnes den nye side først lidt senere (popstate); så kommer den ind som en almindelig side.
     hint = slideIn ? { dir, fromSwipe: true } : { dir };
-    // Den gamle side SKAL væk, også hvis noget fejler under tegningen af den nye.
-    Debug.log(`skift ${dir > 0 ? '→' : '←'} (${Math.round(duration * 1000)} ms)`);
-    setTimeout(() => dropGhost(ghost), (duration + 0.3) * 1000);
-    gsap.to(ghost, { x: -dir * W, duration, ease, onComplete: () => dropGhost(ghost) });
-    try { run(); } catch (err) { dropGhost(ghost); throw err; }
-    const next = document.querySelector('#app main');
-    if (!next || next === holder || !slideIn) return;
-    gsap.fromTo(next, { x: x0 + dir * W, opacity: 1 }, { x: 0, duration, ease, clearProps: 'transform,opacity' });
-    // Sikkerhedsnet: uanset hvad står alt på plads kort efter (fx hvis telefonen springer billeder over).
-    setTimeout(() => {
-      if (next.isConnected && gsap.getProperty(next, 'x') !== 0) { gsap.killTweensOf(next); gsap.set(next, { clearProps: 'transform,opacity' }); }
-    }, (duration + 0.3) * 1000);
+    gsap.to(main, {
+      x: -dir * W, duration: out, ease: 'none',
+      onComplete: () => {
+        run();
+        const next = document.querySelector('#app main');
+        if (!next || next === main || !slideIn) return;
+        gsap.fromTo(next, { x: dir * W * 0.5 }, { x: 0, duration: 0.3, ease: 'power3.out', clearProps: 'transform' });
+      },
+    });
   }
 
   // ---------- Træk for at opdatere ----------

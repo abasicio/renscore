@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 33;
+const APP_VERSION = 35;
 window.APP_VERSION_DBG = APP_VERSION; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
@@ -1482,7 +1482,7 @@ app.addEventListener('touchstart', (e) => {
   if (e.target.closest('.days, .utabs, .chips, .sidepick, input')) return;
   const edge = t.clientX < 24;
   if (edge && !navigator.standalone) return;
-  const main = app.querySelector('main');
+  const main = Motion.grab();
   Debug.log('finger ned');
   if (main) swipe = { x: t.clientX, y: t.clientY, t: Date.now(), start: performance.now(), edge, main, lock: null, dx: 0, dy: 0, top: window.scrollY <= 0 };
 }, { passive: true });
@@ -1496,7 +1496,6 @@ app.addEventListener('touchmove', (e) => {
       swipe.lock = 'x';
       swipe.next = { 1: swipeAction(1, swipe.edge), '-1': swipeAction(-1, swipe.edge) };
       swipe.main = app.querySelector('main') || swipe.main; // kan være tegnet om siden fingeren landede
-      Motion.grab(swipe.main, swipeIndicator());
     } else if (dy > 0 && swipe.top && standalone && route().name !== 'settings') {
       swipe.lock = 'pull';
     } else { swipe = null; return; } // almindelig lodret scroll
@@ -1557,7 +1556,11 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (hadController && !reloaded) { reloaded = true; location.reload(); }
   });
-  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((r) => r.update()).catch(() => {});
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+    reg.update();
+    // Også når man vender tilbage til appen (den lukkes sjældent helt på en iPhone): se efter en ny version.
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+  }).catch(() => {});
 }
 render();
 load();
