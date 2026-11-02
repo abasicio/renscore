@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 30; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
+const APP_VERSION = 31; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -709,6 +709,9 @@ function render() {
   });
   const html = r.name === 'scores' ? viewScores() : r.name === 'match' ? viewMatch(r.league, r.id)
     : r.name === 'fav' ? viewFavorites() : viewSettings();
+  document.querySelectorAll('body > .swipe-ghost').forEach((g) => {
+    if (performance.now() - (g._born || (g._born = performance.now())) > 1000) g.remove();
+  });
   if (html === lastHtml) return; // intet nyt at vise (fx en opdatering uden ændringer)
   lastHtml = html;
   // Gem de billeder, der allerede er tegnet, og sæt dem ind igen bagefter: et nyt <img> med samme
@@ -1520,6 +1523,23 @@ function endSwipe() {
 }
 document.addEventListener('touchend', endSwipe, true);
 document.addEventListener('touchcancel', endSwipe, true);
+
+// ---------- Fejl vises på skærmen (så et skærmbillede afslører årsagen) ----------
+
+function showError(msg) {
+  let el = document.getElementById('errbar');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'errbar';
+    el.addEventListener('click', () => el.remove());
+    document.body.appendChild(el);
+  }
+  el.textContent = `Fejl (v${APP_VERSION}): ${msg}`.slice(0, 220);
+  clearTimeout(showError.t);
+  showError.t = setTimeout(() => el.remove(), 12000);
+}
+window.addEventListener('error', (e) => showError(`${e.message} @${(e.filename || '').split('/').pop()}:${e.lineno}`));
+window.addEventListener('unhandledrejection', (e) => { if (e.reason?.name !== 'AbortError') showError(String(e.reason?.stack || e.reason).split('\n')[0]); });
 
 // ---------- Start ----------
 

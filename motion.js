@@ -253,6 +253,7 @@ const Motion = (() => {
     holder.style.height = Math.min(main.offsetHeight, window.innerHeight) + 'px';
     main.replaceWith(holder);
     ghost.classList.add('swipe-ghost');
+    ghost._born = performance.now();
     Object.assign(ghost.style, {
       position: 'fixed', top: r.top + 'px', left: (r.left - x0) + 'px', width: r.width + 'px',
       margin: '0', zIndex: '5', pointerEvents: 'none',
@@ -266,14 +267,15 @@ const Motion = (() => {
     const ease = 'power2.out'; // starter hurtigt (som fingeren) og lander blødt
     // Går man tilbage, tegnes den nye side først lidt senere (popstate); så kommer den ind som en almindelig side.
     hint = slideIn ? { dir, fromSwipe: true } : { dir };
-    run();
+    // Den gamle side SKAL væk, også hvis noget fejler under tegningen af den nye.
+    setTimeout(() => ghost.remove(), (duration + 0.3) * 1000);
     gsap.to(ghost, { x: -dir * W, duration, ease, onComplete: () => ghost.remove() });
+    try { run(); } catch (err) { ghost.remove(); throw err; }
     const next = document.querySelector('#app main');
     if (!next || next === holder || !slideIn) return;
     gsap.fromTo(next, { x: x0 + dir * W, opacity: 1 }, { x: 0, duration, ease, clearProps: 'transform,opacity' });
     // Sikkerhedsnet: uanset hvad står alt på plads kort efter (fx hvis telefonen springer billeder over).
     setTimeout(() => {
-      ghost.remove();
       if (next.isConnected && gsap.getProperty(next, 'x') !== 0) { gsap.killTweensOf(next); gsap.set(next, { clearProps: 'transform,opacity' }); }
     }, (duration + 0.3) * 1000);
   }

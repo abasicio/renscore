@@ -463,3 +463,8 @@ main { touch-action: pan-y pinch-zoom; will-change: transform; }
 .pal i::before { content: ""; width: 22px; height: 22px; border-radius: 50%; background: var(--pal-accent); }
 .pal.sel { color: var(--text); }
 .pal.sel i { box-shadow: 0 0 0 2.5px var(--accent); }
+
+/* Fejlbesked nederst (tryk for at lukke) */
+#errbar { position: fixed; left: 16px; right: 16px; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 60;
+  padding: 10px 14px; border-radius: 14px; background: #2a0f14; color: #ffb3bd; font: 12px/1.35 ui-monospace, Menlo, monospace;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6); }
