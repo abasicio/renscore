@@ -198,12 +198,17 @@ const Motion = (() => {
 
   /** Fingeren rører skærmen: stop alt, der stadig glider, så det følger fingeren fra første øjeblik. */
   function grab(main, indKey) {
-    document.querySelectorAll('body > .swipe-ghost').forEach((g) => g.remove());
+    // Hurtige swipes: gør den forrige overgang FÆRDIG med det samme (i stedet for at fryse den midtvejs),
+    // så det nye swipe altid starter fra en ren skærm.
+    document.querySelectorAll('body > .swipe-ghost').forEach((g) => { gsap?.killTweensOf(g); g.remove(); });
     if (!gsap) return;
-    gsap.killTweensOf(main);
-    gsap.killTweensOf(main.querySelectorAll('*'));
-    gsap.set(main.querySelectorAll('main > *'), { clearProps: 'transform,opacity' });
-    document.querySelectorAll(`[data-ind="${indKey}"] > .ind`).forEach((ind) => gsap.killTweensOf(ind));
+    const finish = (targets) => gsap.getTweensOf(targets).forEach((t) => t.progress(1));
+    finish(main);
+    finish(main.querySelectorAll('*'));
+    finish(document.querySelectorAll('[data-ind] > .ind'));
+    finish(document.querySelectorAll('.days'));
+    gsap.set(main, { clearProps: 'transform,opacity' });
+    gsap.set(main.querySelectorAll(':scope > *'), { clearProps: 'transform,opacity' });
   }
 
   /** Mens man swiper: indholdet følger fingeren, og markøren glider mod nabo-dagen/-fanen. */
