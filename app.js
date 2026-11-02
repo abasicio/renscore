@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 27; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
+const APP_VERSION = 28; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -318,13 +318,15 @@ async function loadFootball() {
   }
   const previous = new Map(d.days.map((x) => [x.league.id, x.events]));
   const build = (parts) => leagues.map((l, i) => ({ league: l, events: parts[i] ?? previous.get(l.id) ?? [] })).filter((x) => x.events.length);
-  let timer = null;
-  let parts = await fetchDay(ui.day, leagues, (p) => {
-    // Vis ligaerne efterhånden som de kommer, men højst ca. 6 gange i sekundet.
-    if (timer || d.key !== key) return;
-    timer = setTimeout(() => { timer = null; if (d.key !== key) return; d.days = build(p); d.loading = false; render(); }, 150);
-  }, { signal: ctl.signal });
-  clearTimeout(timer);
+  // Dagen vises samlet, når alle ligaer er hentet – ellers dukker kort (fx "Mine hold") op midt i
+  // listen og skubber alt. Kun hvis nettet er langsomt og vi intet har at vise, kommer det hentede efter 1,5 s.
+  let latest = null;
+  const slow = d.loading ? setTimeout(() => {
+    if (d.key !== key || !latest || !d.loading) return;
+    d.days = build(latest); d.loading = false; render();
+  }, 1500) : null;
+  let parts = await fetchDay(ui.day, leagues, (p) => { latest = p; }, { signal: ctl.signal });
+  clearTimeout(slow);
   if (d.key !== key) return; // brugeren har skiftet dag imens
   if (leagues.length && parts.every((r) => r === null)) {
     // Alt fejlede (typisk et kort hul i forbindelsen): prøv én gang mere, før vi siger "Ingen forbindelse".
