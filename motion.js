@@ -5,6 +5,30 @@
 // nyt eller ændret: et nyt skærmbillede, en ny dag/fane, en liga der lige er hentet, et mål.
 // Uden GSAP, eller med "Reducer bevægelse" slået til, vises alt bare uden animation.
 
+// Fejlfinding: viser live, hvor mange "sider" der faktisk ligger på skærmen, og de seneste hændelser.
+const Debug = (() => {
+  let on = false, el = null, events = [];
+  const t0 = performance.now();
+  function paint() {
+    if (!on) return;
+    const ghosts = document.querySelectorAll('body > .swipe-ghost').length;
+    const mains = document.querySelectorAll('#app main').length;
+    const m = document.querySelector('#app main');
+    const tf = m ? (m.style.transform || 'ingen') : '-';
+    el.textContent = `RenScore v${window.APP_VERSION_DBG || '?'}\nsider i #app: ${mains}  udgående: ${ghosts}\nside-bevægelse: ${tf.slice(0, 28)}\n` + events.slice(-7).join('\n');
+    requestAnimationFrame(paint);
+  }
+  return {
+    log(msg) { if (on) events.push(`${((performance.now() - t0) / 1000).toFixed(2)} ${msg}`); if (events.length > 30) events.shift(); },
+    set(v) {
+      on = v;
+      if (on && !el) { el = document.createElement('div'); el.id = 'dbg'; document.body.appendChild(el); requestAnimationFrame(paint); }
+      if (!on && el) { el.remove(); el = null; }
+    },
+    get on() { return on; },
+  };
+})();
+
 const Motion = (() => {
   const gsap = window.gsap;
   const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)');
@@ -196,11 +220,21 @@ const Motion = (() => {
 
   // ---------- Swipe-hjælp ----------
 
+  /** Fjern den udgående side helt: først usynlig (tvinger iPhone-Safari til at tegne om), så ud af siden. */
+  function dropGhost(g) {
+    if (!g?.isConnected) return;
+    gsap?.killTweensOf(g);
+    g.style.visibility = 'hidden';
+    g.style.transform = 'none';
+    Debug.log('spøgelse fjernet');
+    requestAnimationFrame(() => g.remove());
+  }
+
   /** Fingeren rører skærmen: stop alt, der stadig glider, så det følger fingeren fra første øjeblik. */
   function grab(main, indKey) {
     // Hurtige swipes: gør den forrige overgang FÆRDIG med det samme (i stedet for at fryse den midtvejs),
     // så det nye swipe altid starter fra en ren skærm.
-    document.querySelectorAll('body > .swipe-ghost').forEach((g) => { gsap?.killTweensOf(g); g.remove(); });
+    document.querySelectorAll('body > .swipe-ghost').forEach(dropGhost);
     if (!gsap) return;
     const finish = (targets) => gsap.getTweensOf(targets).forEach((t) => t.progress(1));
     finish(main);
@@ -273,9 +307,10 @@ const Motion = (() => {
     // Går man tilbage, tegnes den nye side først lidt senere (popstate); så kommer den ind som en almindelig side.
     hint = slideIn ? { dir, fromSwipe: true } : { dir };
     // Den gamle side SKAL væk, også hvis noget fejler under tegningen af den nye.
-    setTimeout(() => ghost.remove(), (duration + 0.3) * 1000);
-    gsap.to(ghost, { x: -dir * W, duration, ease, onComplete: () => ghost.remove() });
-    try { run(); } catch (err) { ghost.remove(); throw err; }
+    Debug.log(`skift ${dir > 0 ? '→' : '←'} (${Math.round(duration * 1000)} ms)`);
+    setTimeout(() => dropGhost(ghost), (duration + 0.3) * 1000);
+    gsap.to(ghost, { x: -dir * W, duration, ease, onComplete: () => dropGhost(ghost) });
+    try { run(); } catch (err) { dropGhost(ghost); throw err; }
     const next = document.querySelector('#app main');
     if (!next || next === holder || !slideIn) return;
     gsap.fromTo(next, { x: x0 + dir * W, opacity: 1 }, { x: 0, duration, ease, clearProps: 'transform,opacity' });

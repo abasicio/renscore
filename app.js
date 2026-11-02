@@ -3,7 +3,8 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 32; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
+const APP_VERSION = 33;
+window.APP_VERSION_DBG = APP_VERSION; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
 const LEAGUES = [
@@ -105,6 +106,7 @@ function applyPalette(id) {
   });
 }
 prefs.palette = storage.get('palette', 'blue');
+if (storage.get('debug', false)) Debug.set(true);
 applyPalette(prefs.palette);
 
 function saveEnabled() { storage.set('enabled', [...prefs.enabled]); }
@@ -713,6 +715,7 @@ function render() {
     if (performance.now() - (g._born || (g._born = performance.now())) > 1000) g.remove();
   });
   if (html === lastHtml) return; // intet nyt at vise (fx en opdatering uden ændringer)
+  Debug.log('tegner ' + r.name + (r.name === 'scores' ? ' ' + apiDay(ui.day) : ''));
   lastHtml = html;
   // Gem de billeder, der allerede er tegnet, og sæt dem ind igen bagefter: et nyt <img> med samme
   // adresse blinker kort i Safari, mens det tegnes; det gamle står der bare.
@@ -1363,6 +1366,7 @@ function viewSettings() {
     ? `<button class="danger" data-action="fav-clear">Fjern alle fulgte hold (${prefs.favorites.length})</button>`
     : '<div class="note">Tilføj hold under Favoritter, eller tryk på stjernen inde i en kamp.</div>'}</section>`;
   html += '<section class="card"><div class="note">Ingen reklamer, ingen notifikationer, ingen konto. Data fra ESPN. Dine valg gemmes kun på denne telefon.</div></section>';
+  html += `<div class="group-title">Fejlfinding</div><section class="card"><button class="toggle-row" style="width:100%;text-align:left" data-action="debug"><span>🔧</span><span>Vis fejlfinding på skærmen</span><span class="sw ${Debug.on ? 'on' : ''}"></span></button></section>`;
   html += `<p class="note" style="text-align:center">RenScore version ${APP_VERSION}</p>`;
   return html + '</main>';
 }
@@ -1372,6 +1376,7 @@ function viewSettings() {
 const actions = {
   sport(el) { Motion.hint = { dir: el.dataset.v === 'mma' ? 1 : -1 }; ui.sport = el.dataset.v; render(); load(); },
   today() { goToday(); },
+  debug() { Debug.set(!Debug.on); storage.set('debug', Debug.on); render(); },
   palette(el) { prefs.palette = el.dataset.v; storage.set('palette', prefs.palette); applyPalette(prefs.palette); render(); },
   live() {
     ui.liveOnly = !ui.liveOnly;
@@ -1478,6 +1483,7 @@ app.addEventListener('touchstart', (e) => {
   const edge = t.clientX < 24;
   if (edge && !navigator.standalone) return;
   const main = app.querySelector('main');
+  Debug.log('finger ned');
   if (main) swipe = { x: t.clientX, y: t.clientY, t: Date.now(), start: performance.now(), edge, main, lock: null, dx: 0, dy: 0, top: window.scrollY <= 0 };
 }, { passive: true });
 
@@ -1506,9 +1512,10 @@ app.addEventListener('touchmove', (e) => {
   else swipe.ready = Motion.pull(swipe.main, Math.max(0, dy));
 }, { passive: false });
 
-function endSwipe() {
+function endSwipe(e) {
   const s = swipe;
   swipe = null;
+  Debug.log(`finger op${e?.type === 'touchcancel' ? ' (afbrudt af iOS)' : ''}${s?.lock ? ' lås=' + s.lock + ' dx=' + Math.round(s.dx) : ''}`);
   if (!s?.lock) return;
   if (s.lock === 'pull') { Motion.release(s.main, s.ready, () => load()); return; }
   const flush = () => { if (renderPending) render(); };

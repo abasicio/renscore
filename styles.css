@@ -411,7 +411,7 @@ p.note { text-align: center; font-size: 12px; color: var(--muted); margin: 4px 0
 
 /* ---------- Bevægelse ---------- */
 #app { overflow-x: clip; }
-main { touch-action: pan-y pinch-zoom; will-change: transform; }
+main { touch-action: pan-y pinch-zoom; }
 
 /* Markører, der glider mellem valgte elementer (styres af motion.js) */
 :where([data-ind]) { position: relative; }
@@ -468,3 +468,8 @@ main { touch-action: pan-y pinch-zoom; will-change: transform; }
 #errbar { position: fixed; left: 16px; right: 16px; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 60;
   padding: 10px 14px; border-radius: 14px; background: #2a0f14; color: #ffb3bd; font: 12px/1.35 ui-monospace, Menlo, monospace;
   box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6); }
+
+/* Fejlfinding (Indstillinger → Fejlfinding) */
+#dbg { position: fixed; left: 8px; top: calc(env(safe-area-inset-top, 0px) + 4px); z-index: 70; pointer-events: none;
+  max-width: 62vw; padding: 6px 8px; border-radius: 10px; background: rgba(0, 0, 0, 0.78); color: #9cff9c;
+  font: 10px/1.3 ui-monospace, Menlo, monospace; white-space: pre; }
