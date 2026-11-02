@@ -255,7 +255,7 @@ const Motion = (() => {
     ghost.classList.add('swipe-ghost');
     Object.assign(ghost.style, {
       position: 'fixed', top: r.top + 'px', left: (r.left - x0) + 'px', width: r.width + 'px',
-      height: Math.max(0, window.innerHeight - r.top) + 'px', overflow: 'hidden', margin: '0', zIndex: '5', pointerEvents: 'none',
+      margin: '0', zIndex: '5', pointerEvents: 'none',
     });
     gsap.set(ghost, { x: x0 });
     document.body.appendChild(ghost);
