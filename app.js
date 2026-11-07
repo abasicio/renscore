@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 39;
+const APP_VERSION = 40;
 window.APP_VERSION_DBG = APP_VERSION; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
@@ -1360,7 +1360,7 @@ function favCard(fav) {
 const ATHLETE_API = 'https://site.web.api.espn.com/apis/common/v3/sports/soccer/athletes';
 const POS_DA = { Goalkeeper: 'Målmand', Defender: 'Forsvarsspiller', Midfielder: 'Midtbanespiller', Forward: 'Angriber' };
 const COUNTRY_DA = {
-  Israel: 'Palæstina', Palestine: 'Palæstina',
+  Israel: 'Palæstina', Palestine: 'Palæstina', Iraq: 'Irak', Iran: 'Iran', Syria: 'Syrien',
   Denmark: 'Danmark', Sweden: 'Sverige', Norway: 'Norge', Iceland: 'Island', Finland: 'Finland', Germany: 'Tyskland', France: 'Frankrig',
   Spain: 'Spanien', Italy: 'Italien', Netherlands: 'Holland', Belgium: 'Belgien', Brazil: 'Brasilien', Argentina: 'Argentina',
   England: 'England', Scotland: 'Skotland', Wales: 'Wales', 'Northern Ireland': 'Nordirland', 'Republic of Ireland': 'Irland', Ireland: 'Irland',
@@ -1371,9 +1371,23 @@ const COUNTRY_DA = {
   Hungary: 'Ungarn', Slovenia: 'Slovenien', Slovakia: 'Slovakiet', Romania: 'Rumænien', Mexico: 'Mexico', Canada: 'Canada', Australia: 'Australien',
 };
 const RESULT_CLS = { W: 'V', D: 'U', L: 'T' };
+/** Spillere med kurdisk baggrund (offentligt kendt): det kurdiske flag vises ved siden af deres landsflag. Tilføj ESPN-id'er her. */
+const KURDISH = new Set([
+  '273300', // Deniz Undav
+  '326032', // Marko Farji
+  '363867', // Dario Naamo
+]);
+const KURDISH_FLAG = (() => {
+  const rays = Array.from({ length: 21 }, (_, i) => {
+    const a = (i / 21) * 2 * Math.PI - Math.PI / 2;
+    const pt = (r, d) => `${(15 + r * Math.cos(a + d)).toFixed(2)},${(10 + r * Math.sin(a + d)).toFixed(2)}`;
+    return `<polygon points="${pt(5.4, 0)} ${pt(2.7, 0.12)} ${pt(2.7, -0.12)}"/>`;
+  }).join('');
+  return `<svg class="kflag" viewBox="0 0 30 20" aria-label="Kurdistan"><rect width="30" height="20" fill="#278e43"/><rect width="30" height="13.33" fill="#fff"/><rect width="30" height="6.67" fill="#ed2024"/><g fill="#febd11">${rays}<circle cx="15" cy="10" r="2.9"/></g></svg>`;
+})();
 const COMP_DA = { 'International Friendly': 'Venskabskampe', 'FIFA World Cup': 'VM', 'FIFA World Cup Qualifying': 'VM-kvalifikation', 'UEFA European Championship': 'EM', 'UEFA European Championship Qualifying': 'EM-kvalifikation', 'Club Friendly': 'Træningskampe' };
 /** "2026-27 English Premier League" -> "Premier League". */
-const compName = (n) => { const x = n.replace(/^\d{4}(-\d{2})?\s+/, '').replace(/^English /, ''); return COMP_DA[x] || x; };
+const compName = (n) => { const x = n.replace(/^\d{4}(-\d{2})?\s+/, '').replace(/^(English|German|Spanish|Italian|French|Dutch|Portuguese|Turkish|Scottish|Danish|Belgian|Austrian|Swiss|Greek|Norwegian|Swedish) /, ''); return COMP_DA[x] || x; };
 const athleteCache = new Map(); // id -> { info, overview }
 let pcard = null;
 
@@ -1453,7 +1467,7 @@ function renderPlayer() {
   const photo = a?.headshot?.href || e?.athlete?.headshot?.href || `https://a.espncdn.com/i/headshots/soccer/players/full/${id}.png`;
   const cm = /(\d+)' (\d+)"/.exec(a?.displayHeight || '');
   const facts = [
-    a?.citizenship ? `${a.flag?.href ? `<img src="${esc(sized(a.flag.href, 40))}" alt="">` : ''}${esc(COUNTRY_DA[a.citizenship] || a.citizenship)}` : '',
+    a?.citizenship ? `${a.flag?.href ? `<img src="${esc(sized(a.flag.href, 40))}" alt="">` : ''}${KURDISH.has(id) ? KURDISH_FLAG : ''}${esc(COUNTRY_DA[a.citizenship] || a.citizenship)}${KURDISH.has(id) ? ' · Kurdisk' : ''}` : '',
     a?.age ? `${a.age} år` : '',
     cm ? `${Math.round((+cm[1] * 12 + +cm[2]) * 2.54)} cm` : '',
   ].filter(Boolean);
