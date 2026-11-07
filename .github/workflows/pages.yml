@@ -1,4 +1,4 @@
-# Udgiver appen på GitHub Pages og opdaterer streaming.json (Viaplays program) hver 3. time.
+# Udgiver appen på GitHub Pages og opdaterer streaming.json (Viaplays program) og teams.json (holdlister) hver 3. time.
 name: Udgiv
 
 on:
@@ -28,6 +28,9 @@ jobs:
       - name: Hent streamingprogram
         continue-on-error: true
         run: python3 scripts/streaming.py
+      - name: Hent holdlister til søgningen
+        continue-on-error: true
+        run: python3 scripts/teams.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

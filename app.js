@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 36;
+const APP_VERSION = 37;
 window.APP_VERSION_DBG = APP_VERSION; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
@@ -215,6 +215,7 @@ const data = {
   summary: { key: null, value: null },
   fav: { overviews: storage.get('favOverviews', {}), loaded: false },
   teams: { byLeague: null, loading: false },
+  team: { key: null, info: null, o: null },
 };
 const eventCache = new Map(); // "liga:id" -> event, så kampsiden kan vises med det samme
 
@@ -453,9 +454,14 @@ async function loadSummary(leagueId, id) {
 async function loadTeamDirectory() {
   const t = data.teams;
   if (t.byLeague || t.loading) return;
-  const cached = storage.get('teams', null);
-  if (cached && Object.keys(cached.byLeague || {}).length && Date.now() - cached.t < 7 * 864e5) { t.byLeague = cached.byLeague; return; }
   t.loading = true;
+  // Holdlisten bygges af GitHub ved hver udgivelse (scripts/teams.py): én lille fil i stedet for 20 kald.
+  try {
+    const r = await getJSON('teams.json');
+    if (Object.keys(r.leagues || {}).length) { t.byLeague = r.leagues; t.loading = false; storage.set('teams', { t: Date.now(), byLeague: t.byLeague }); return; }
+  } catch { /* uden net: brug den gemte liste herunder */ }
+  const cached = storage.get('teams', null);
+  if (cached && Object.keys(cached.byLeague || {}).length) { t.byLeague = cached.byLeague; t.loading = false; return; }
   // Holdlisterne tages fra stillingen, fordi ESPN's /teams ikke må hentes fra en browser.
   const ids = LEAGUES.map((l) => l.id).filter(isDomestic);
   const lists = await Promise.all(ids.map((id) =>
@@ -492,8 +498,10 @@ async function teamOverview(fav) {
   const country = leagueById(fav.leagueId)?.country;
   const ids = new Set([fav.leagueId, ...UEFA, ...LEAGUES.filter((l) => l.country === country && !isDomestic(l.id)).map((l) => l.id)]);
   const reqs = [];
+  let info = null; // placering, V-U-T og farver står i ligaens kampprogram (/teams/{id} må ikke hentes fra en browser)
   ids.forEach((id) => [false, true].forEach((upcoming) => reqs.push(
     getJSON(`${API}/soccer/${id}/teams/${fav.id}/schedule${upcoming ? '?fixture=true' : ''}`)
+      .then((r) => { if (id === fav.leagueId && !upcoming && r.team) info = r.team; return r; })
       .then((r) => (r.events || []).map((e) => ({ ...e, _league: e.league?.slug || id })))
       .catch(() => []))));
   const byId = new Map();
@@ -501,9 +509,12 @@ async function teamOverview(fav) {
   const events = [...byId.values()].sort((a, b) => parseDate(a.date) - parseDate(b.date));
   events.forEach((e) => eventCache.set(`${e._league}:${e.id}`, e));
   const soon = Date.now() - 3 * 3600e3;
+  const upcoming = events.filter((e) => stateOf(e) === 'pre' && parseDate(e.date) > soon);
   return {
+    info,
     live: events.find(isLive),
-    next: events.find((e) => stateOf(e) === 'pre' && parseDate(e.date) > soon),
+    next: upcoming[0],
+    upcoming: upcoming.slice(0, 5),
     recent: events.filter((e) => isDone(e) && statusOf(e).type?.completed !== false).reverse().slice(0, 5),
   };
 }
@@ -520,10 +531,23 @@ async function loadFavorites() {
   scheduleRefresh(list.some((o) => o.live));
 }
 
+async function loadTeam(leagueId, id) {
+  const key = leagueId + ':' + id;
+  if (data.team.key !== key) data.team = { key, info: null, o: null };
+  loadTeamDirectory().then(() => { if (!data.team.info) render(); }); // navn og logo med det samme
+  const o = await teamOverview({ id, leagueId });
+  if (data.team.key !== key) return;
+  data.team.info = o.info || data.team.info;
+  data.team.o = o;
+  render();
+  scheduleRefresh(!!o.live);
+}
+
 function load() {
   const r = route();
   if (r.name === 'scores') return ui.sport === 'football' ? loadFootball() : loadUfc();
   if (r.name === 'match') return loadSummary(r.league, r.id);
+  if (r.name === 'team') return loadTeam(r.league, r.id);
   if (r.name === 'fav') return loadFavorites();
   clearTimeout(refreshTimer);
 }
@@ -680,6 +704,8 @@ function route() {
   const h = location.hash.replace(/^#/, '') || '/';
   const m = h.match(/^\/match\/([^/]+)\/([^/]+)$/);
   if (m) return { name: 'match', league: decodeURIComponent(m[1]), id: decodeURIComponent(m[2]) };
+  const t = h.match(/^\/team\/([^/]+)\/([^/]+)$/);
+  if (t) return { name: 'team', league: decodeURIComponent(t[1]), id: decodeURIComponent(t[2]) };
   if (h === '/fav') return { name: 'fav' };
   if (h === '/settings') return { name: 'settings' };
   return { name: 'scores' };
@@ -691,6 +717,7 @@ const app = document.getElementById('app');
 function viewKey(r) {
   if (r.name === 'scores') return `scores|${ui.sport}|${ui.sport === 'football' ? apiDay(ui.day) : ui.ufcMode}|${ui.liveOnly}`;
   if (r.name === 'match') return `match|${r.league}|${r.id}|${ui.detailTab}|${ui.lineupSide}`;
+  if (r.name === 'team') return `team|${r.id}`;
   return r.name;
 }
 
@@ -710,11 +737,12 @@ function render() {
   renderPending = false;
   const r = route();
   const before = typeof Motion !== 'undefined' ? Motion.snapshot() : null;
-  document.querySelectorAll('#tabbar a').forEach((a) => {
+  // En holdside kan åbnes fra både Kampe og Favoritter; fanen bliver stående, hvor man kom fra.
+  if (r.name !== 'team') document.querySelectorAll('#tabbar a').forEach((a) => {
     a.classList.toggle('sel', a.dataset.tab === (r.name === 'match' ? 'scores' : r.name));
   });
   const html = r.name === 'scores' ? viewScores() : r.name === 'match' ? viewMatch(r.league, r.id)
-    : r.name === 'fav' ? viewFavorites() : viewSettings();
+    : r.name === 'team' ? viewTeam(r.league, r.id) : r.name === 'fav' ? viewFavorites() : viewSettings();
   document.querySelectorAll('body > .swipe-ghost').forEach((g) => {
     if (performance.now() - (g._born || (g._born = performance.now())) > 1000) g.remove();
   });
@@ -767,7 +795,8 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 // ---------- Visning: Kampe ----------
 
-const REFRESH_ICON = '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>';
+const SEARCH_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>';
+const REFRESH_ICON ='<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>';
 
 function viewScores() {
   const f = data.football;
@@ -784,10 +813,10 @@ function viewScores() {
       ${ui.sport === 'football' ? `<button class="live-btn ${ui.liveOnly ? 'on' : ''}" data-action="live"><span class="dot"></span>LIVE${liveCount ? ' ' + liveCount : ''}</button>` : ''}
       <button class="iconbtn" data-action="refresh" aria-label="Opdater">${REFRESH_ICON}</button>
     </div>
-    <div class="chips" data-ind="sport">
+    <div class="seg-row"><div class="chips" data-ind="sport">
       <button class="chip ${ui.sport === 'football' ? 'sel' : ''}" data-action="sport" data-v="football">⚽ Fodbold</button>
       <button class="chip ${ui.sport === 'mma' ? 'sel' : ''}" data-action="sport" data-v="mma">🥊 MMA</button>
-    </div>`;
+    </div><button class="iconbtn search-btn" data-action="add-open" aria-label="Søg hold">${SEARCH_ICON}</button></div>`;
   if (ui.sport === 'football') {
     head += `<div class="days" data-ind="days">${days.map((d) => `<button class="day ${sameDay(d, ui.day) ? 'sel' : ''} ${sameDay(d, today) ? 'today' : ''}" data-action="day" data-v="${d.getTime()}" aria-label="${esc(d.toLocaleDateString('da-DK', { weekday: 'long', day: 'numeric', month: 'long' }))}"><b>${fmt.weekdayShort(d)}</b><span>${d.getDate()}</span></button>`).join('')}</div>`;
   } else {
@@ -1101,7 +1130,7 @@ function viewMatch(leagueId, id) {
 
   const st = status?.type?.state;
   const teamCol = (c) => `<div class="tc">
-      <div class="crest">${logoImg(fallbackLogo(c), '')}</div>
+      ${c?.team ? `<button class="crest" data-action="team-open" data-id="${esc(c.team.id)}" data-league="${esc(leagueId)}" aria-label="Se ${esc(c.team.displayName)}">${logoImg(fallbackLogo(c), '')}</button>` : `<div class="crest">${logoImg(fallbackLogo(c), '')}</div>`}
       <div>${esc(teamName(c?.team))}</div>
       ${c?.team ? `<button class="star ${isFav(c.team.id) ? 'on' : ''}" data-action="fav" data-id="${esc(c.team.id)}" data-name="${esc(c.team.displayName)}" data-logo="${esc(fallbackLogo(c))}" data-league="${esc(leagueId)}">${isFav(c.team.id) ? '★' : '☆'}</button>` : ''}
     </div>`;
@@ -1283,50 +1312,106 @@ function viewFavorites() {
   return html + '</main>';
 }
 
+/** V, U eller T for holdet i en færdig kamp. */
+function resultFor(e, teamId) {
+  const cs = e.competitions?.[0]?.competitors || [];
+  const me = cs.find((c) => c.team?.id === teamId);
+  if (!me) return '?';
+  if (me.winner === true) return 'V';
+  return cs.some((c) => c.team?.id !== teamId && c.winner === true) ? 'T' : 'U';
+}
+const formChips = (recent, teamId) => [...recent].reverse().map((e) => { const r = resultFor(e, teamId); return `<b class="${r}">${r}</b>`; }).join('');
+const teamHref = (leagueId, id) => `#/team/${encodeURIComponent(leagueId)}/${encodeURIComponent(id)}`;
+
+/** En kamp med dato og turnering over, som i Favoritter og på holdsiden. */
+function labeledMatch(title, e, fallbackLeague, cls = '') {
+  const lid = e._league || fallbackLeague;
+  const lg = leagueById(lid);
+  return `<div class="sep"></div><div class="sublabel">${title ? `<b class="${cls}">${title}</b>` : ''}${lg ? `<span>${title ? '· ' : ''}${esc(lg.name)}</span>` : ''}
+      ${stateOf(e) === 'pre' ? `<span class="r">${esc(fmt.dayLabel(parseDate(e.date)))}</span>` : ''}</div>${matchRow(e, lid)}`;
+}
+
 function favCard(fav) {
   const o = data.fav.overviews[fav.id];
   const league = leagueById(fav.leagueId);
-  const result = (e) => {
-    const cs = e.competitions?.[0]?.competitors || [];
-    const me = cs.find((c) => c.team?.id === fav.id);
-    if (!me) return '?';
-    if (me.winner === true) return 'V';
-    return cs.some((c) => c.team?.id !== fav.id && c.winner === true) ? 'T' : 'U';
-  };
-  const form = o ? [...o.recent].reverse().map((e) => { const r = result(e); return `<b class="${r}">${r}</b>`; }).join('') : '';
-  const section = (title, e, cls = '') => {
-    const lid = e._league || fav.leagueId;
-    const lg = leagueById(lid);
-    return `<div class="sep"></div><div class="sublabel"><b class="${cls}">${title}</b>${lg ? `<span>· ${esc(lg.name)}</span>` : ''}
-      ${stateOf(e) === 'pre' ? `<span class="r">${esc(fmt.dayLabel(parseDate(e.date)))}</span>` : ''}</div>${matchRow(e, lid)}`;
-  };
+  const form = o ? formChips(o.recent, fav.id) : '';
   let body = '';
   if (o) {
-    if (o.live) body += section('LIVE', o.live, 'live');
-    if (o.next && o.next.id !== o.live?.id) body += section('NÆSTE KAMP', o.next);
-    if (o.recent[0]) body += section('SENESTE KAMP', o.recent[0]);
+    if (o.live) body += labeledMatch('LIVE', o.live, fav.leagueId, 'live');
+    if (o.next && o.next.id !== o.live?.id) body += labeledMatch('NÆSTE KAMP', o.next, fav.leagueId);
+    if (o.recent[0]) body += labeledMatch('SENESTE KAMP', o.recent[0], fav.leagueId);
     if (!o.live && !o.next && !o.recent.length) body += '<div class="sep"></div><div class="note">Ingen kampe fundet</div>';
   } else {
     body += '<div class="sep"></div><div class="spinner" style="margin:16px auto"></div>';
   }
   return `<section class="card">
-    <div class="favhead">${logoImg(fav.logo)}<div><div class="nm">${esc(fav.name)}</div><div class="lg">${league ? `${league.flag} ${esc(league.name)}` : ''}</div></div>
+    <div class="favhead"><a class="favlink" href="${teamHref(fav.leagueId, fav.id)}">${logoImg(fav.logo)}<div><div class="nm">${esc(fav.name)}</div><div class="lg">${league ? `${league.flag} ${esc(league.name)}` : ''}</div></div></a>
       <div class="form">${form}</div><button class="more" data-action="fav-remove" data-id="${esc(fav.id)}" aria-label="Fjern">✕</button></div>
     ${body}</section>`;
 }
 
-// Ark til at søge og tilføje hold
+// ---------- Visning: Holdside ----------
+
+const PLACE_RE = /^(\d+)(?:st|nd|rd|th) in /;
+function viewTeam(leagueId, id) {
+  const t = data.team.key === leagueId + ':' + id ? data.team : {};
+  const dir = (data.teams.byLeague?.[leagueId] || []).find((x) => x.id === id);
+  const fav = prefs.favorites.find((f) => f.id === id);
+  const info = t.info, o = t.o;
+  const name = info?.displayName || dir?.name || fav?.name || '';
+  const logo = logoOf(info) || dir?.logo || fav?.logo || '';
+  const league = leagueById(leagueId);
+  const colors = teamColors(info, null);
+  const place = PLACE_RE.exec(info?.standingSummary || '');
+  const [w, d, l] = (info?.recordSummary || '').split('-');
+  const facts = [
+    place && league ? `${place[1]}. plads i ${esc(league.name)}` : league ? `${league.flag} ${esc(league.name)}` : '',
+    w != null && l != null ? `${w}V · ${d}U · ${l}T` : '',
+  ].filter(Boolean);
+  const on = isFav(id);
+  let html = `<header class="top mtop thero" style="--hc:${colors.h};--ac:${colors.a}"><div class="glow"></div>
+    <div class="row"><button class="iconbtn" data-action="back" aria-label="Tilbage">${BACK_ICON}</button><p class="title-center">${league ? esc(league.name) : ''}</p><span style="width:34px"></span></div>
+    <div class="thead"><div class="crest">${logoImg(logo, '')}</div><h2>${esc(name)}</h2>
+      ${facts.length ? `<div class="facts">${facts.map((f) => `<span>${f}</span>`).join('')}</div>` : ''}
+      ${o?.recent?.length ? `<div class="form">${formChips(o.recent, id)}</div>` : ''}
+      <button class="follow ${on ? 'on' : ''}" data-action="fav" data-id="${esc(id)}" data-name="${esc(name)}" data-logo="${esc(logo)}" data-league="${esc(leagueId)}">${on ? '★ Følger' : '☆ Følg holdet'}</button></div>
+  </header><main style="--hc:${colors.h};--ac:${colors.a}">`;
+  if (!o) return html + skeleton(2) + '</main>';
+  if (o.live) html += `<section class="card"><div class="card-head"><span class="flag">🔴</span><div><div class="t">Live nu</div></div></div>${labeledMatch('LIVE', o.live, leagueId, 'live')}</section>`;
+  const next = o.upcoming.filter((e) => e.id !== o.live?.id);
+  if (next.length) html += `<section class="card"><div class="card-head"><span class="flag">📅</span><div><div class="t">Næste kampe</div></div></div>${next.map((e) => labeledMatch('', e, leagueId)).join('')}</section>`;
+  if (o.recent.length) html += `<section class="card"><div class="card-head"><span class="flag">🏁</span><div><div class="t">Seneste resultater</div></div></div>${o.recent.map((e) => labeledMatch(fmt.dayMonth(parseDate(e.date)), e, leagueId)).join('')}</section>`;
+  if (!o.live && !next.length && !o.recent.length) html += `<section class="card">${emptyBox('📭', 'Ingen kampe fundet', 'ESPN har ingen kampe for holdet lige nu.')}</section>`;
+  return html + '</main>';
+}
+
+// ---------- Søg hold (ark) ----------
+
+/** Til søgning: små bogstaver uden accenter, så "brondby" finder Brøndby og "besiktas" Beşiktaş. */
+const fold = (s) => (s || '').toLowerCase().replace(/ø/g, 'o').replace(/æ/g, 'ae').replace(/ß/g, 'ss').replace(/ı/g, 'i')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[.'’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+/** Kælenavne, folk skriver, men som ikke står i ESPN's navne. */
+const ALIASES = {
+  fck: 'kobenhavn', copenhagen: 'kobenhavn', fcm: 'midtjylland', ob: 'odense', bif: 'brondby', fcn: 'nordsjaelland', sje: 'sonderjyske',
+  'man utd': 'manchester united', 'man united': 'manchester united', 'man city': 'manchester city', spurs: 'tottenham',
+  barca: 'barcelona', atleti: 'atletico', psg: 'paris saint germain', juve: 'juventus', inter: 'internazionale',
+  bvb: 'dortmund', gladbach: 'monchengladbach', gala: 'galatasaray', fener: 'fenerbahce', bjk: 'besiktas',
+};
+
 let sheet = null;
 async function openAddSheet() {
   ui.query = '';
   sheet = document.createElement('div');
   sheet.className = 'sheet';
-  sheet.innerHTML = `<div class="sh-top"><div class="sh-row"><span class="sp"></span><h2>Tilføj hold</h2><button class="done" data-action="add-close">Færdig</button></div>
-    <input class="search" type="search" placeholder="Søg efter hold" autocomplete="off" autocorrect="off" spellcheck="false"></div>
+  sheet.innerHTML = `<div class="sh-top"><div class="sh-row"><span class="sp"></span><h2>Søg hold</h2><button class="done" data-action="add-close">Færdig</button></div>
+    <input class="search" type="search" placeholder="Fx Brøndby, Arsenal eller FCK" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search"></div>
     <div class="list"><div class="spinner"></div></div>`;
   document.body.appendChild(sheet);
   document.body.style.overflow = 'hidden';
-  sheet.querySelector('.search').addEventListener('input', (e) => { ui.query = e.target.value; renderSheetList(); });
+  const input = sheet.querySelector('.search');
+  input.addEventListener('input', (e) => { ui.query = e.target.value; renderSheetList(); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
+  input.focus(); // skal ske med det samme i trykket, ellers åbner iOS ikke tastaturet
   await loadTeamDirectory();
   renderSheetList();
 }
@@ -1337,19 +1422,49 @@ function closeAddSheet() {
   render();
   load();
 }
+
+/** Holdene, der passer til søgningen, bedste først: navnet starter med det, et ord starter med det, det står et sted i navnet. */
+function searchTeams(query) {
+  const q = fold(query);
+  if (!q) return [];
+  const terms = [q, ALIASES[q]].filter(Boolean);
+  const order = new Map(LEAGUES.map((l, i) => [l.id, i]));
+  const hits = [];
+  Object.entries(data.teams.byLeague || {}).forEach(([lid, teams]) => teams.forEach((t) => {
+    const hay = fold(t.name) + ' | ' + fold(t.short);
+    let score = fold(t.abbr) === q ? 0.5 : 9;
+    terms.forEach((term, i) => {
+      if (i === 1 && (' ' + hay).includes(' ' + term)) score = -1; // kælenavnet ("FCK") vinder over en forkortelse
+      else if (hay.startsWith(term)) score = Math.min(score, 0);
+      else if ((' ' + hay).includes(' ' + term)) score = Math.min(score, 1);
+      else if (hay.includes(term)) score = Math.min(score, 2);
+    });
+    if (score < 9) hits.push({ t, lid, score });
+  }));
+  return hits.sort((a, b) => a.score - b.score || (order.get(a.lid) ?? 99) - (order.get(b.lid) ?? 99) || a.t.name.localeCompare(b.t.name, 'da')).slice(0, 40);
+}
+
+function teamRow(t, lid, showLeague) {
+  const lg = leagueById(lid), on = isFav(t.id);
+  return `<div class="trow"><a class="tlink" href="${teamHref(lid, t.id)}">${t.logo ? `<img class="logo" src="${esc(sized(t.logo, 80))}" alt="" loading="lazy" decoding="async">` : '<span class="logo-ph"></span>'}
+      <span class="tn"><b>${esc(t.name)}</b>${showLeague && lg ? `<small>${lg.flag} ${esc(lg.name)}</small>` : ''}</span></a>
+    <button class="st ${on ? 'on' : ''}" data-action="fav" data-id="${esc(t.id)}" data-name="${esc(t.name)}" data-logo="${esc(t.logo)}" data-league="${lid}" aria-label="${on ? 'Følg ikke' : 'Følg'}">${on ? '★' : '☆'}</button></div>`;
+}
+
 function renderSheetList() {
   if (!sheet) return;
   const by = data.teams.byLeague || {};
-  const q = ui.query.trim().toLowerCase();
-  const html = LEAGUES.filter((l) => by[l.id]).map((l) => {
-    const teams = by[l.id].filter((t) => !q || t.name.toLowerCase().includes(q) || (t.short || '').toLowerCase().includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name, 'da'));
-    if (!teams.length) return '';
-    return `<div class="group-title">${l.flag} ${esc(l.name)}</div><section class="card">${teams.map((t) => `
-      <button class="trow" data-action="fav" data-id="${esc(t.id)}" data-name="${esc(t.name)}" data-logo="${esc(t.logo)}" data-league="${l.id}">
-        ${logoImg(t.logo)}<span>${esc(t.name)}</span><span class="st ${isFav(t.id) ? 'on' : ''}">${isFav(t.id) ? '★' : '☆'}</span></button>`).join('<div class="sep"></div>')}
-    </section>`;
-  }).join('');
+  let html;
+  if (ui.query.trim()) {
+    const hits = searchTeams(ui.query);
+    html = hits.length ? `<section class="card">${hits.map((h) => teamRow(h.t, h.lid, true)).join('<div class="sep"></div>')}</section>` : '';
+  } else {
+    // Uden søgning: dine hold øverst, derefter ligaerne du har slået til.
+    const mine = prefs.favorites.map((f) => teamRow({ id: f.id, name: f.name, logo: f.logo }, f.leagueId, true));
+    html = (mine.length ? `<div class="group-title">Hold du følger</div><section class="card">${mine.join('<div class="sep"></div>')}</section>` : '')
+      + LEAGUES.filter((l) => by[l.id] && prefs.enabled.has(l.id)).map((l) => `<div class="group-title">${l.flag} ${esc(l.name)}</div><section class="card">${
+        [...by[l.id]].sort((a, b) => a.name.localeCompare(b.name, 'da')).map((t) => teamRow(t, l.id, false)).join('<div class="sep"></div>')}</section>`).join('');
+  }
   sheet.querySelector('.list').innerHTML = html || (data.teams.byLeague ? emptyBox('🔍', 'Ingen hold fundet', 'Prøv et andet navn.') : emptyBox('📡', 'Ingen forbindelse', 'Luk og prøv igen.'));
 }
 
@@ -1411,6 +1526,15 @@ const actions = {
   'fav-remove'(el) { prefs.favorites = prefs.favorites.filter((f) => f.id !== el.dataset.id); saveFavorites(); render(); },
   'fav-clear'() { prefs.favorites = []; saveFavorites(); render(); },
   'add-open'() { openAddSheet(); },
+  async 'team-open'(el) {
+    // Fra en Champions League-kamp: vis holdet med dets hjemlige liga (stilling, pokaler).
+    let lid = el.dataset.league;
+    if (!isDomestic(lid)) {
+      await loadTeamDirectory();
+      lid = Object.keys(data.teams.byLeague || {}).find((k) => data.teams.byLeague[k].some((t) => t.id === el.dataset.id)) || lid;
+    }
+    location.hash = teamHref(lid, el.dataset.id);
+  },
   'add-close'() { closeAddSheet(); },
   league(el) {
     const id = el.dataset.id;
@@ -1443,6 +1567,7 @@ const MAIN_TABS = ['#/', '#/fav', '#/settings'];
 /** Hvad et swipe gør her. dir = 1 er swipe mod venstre (frem), -1 mod højre (tilbage). null = intet den vej. */
 function swipeAction(dir, edge) {
   const r = route();
+  if (r.name === 'team') return dir === -1 ? { run: actions.back, slide: false } : null;
   if (r.name === 'match') {
     if (edge && dir === -1) return { run: actions.back, slide: false };
     const tabs = [...app.querySelectorAll('.utabs [data-v]')].map((b) => b.dataset.v);

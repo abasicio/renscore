@@ -239,6 +239,21 @@ main > * { flex-shrink: 0; } /* kort må aldrig klemmes sammen */
 .mhead .tc { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; font-weight: 650; font-size: 14px; }
 .mhead .crest { width: 74px; height: 74px; border-radius: 50%; background: #fff; display: grid; place-items: center; box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6), 0 0 0 4px rgba(255, 255, 255, 0.08); }
 .mhead .crest img { width: 52px; height: 52px; object-fit: contain; }
+
+/* Holdside: ét stort mærke i holdets farve */
+.thero .glow { background: radial-gradient(55% 60% at 50% 45%, color-mix(in srgb, var(--hc) 85%, transparent), transparent 72%); }
+.thead { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 16px 18px; text-align: center; }
+.thead .crest { width: 88px; height: 88px; border-radius: 50%; background: #fff; display: grid; place-items: center; box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6), 0 0 0 4px rgba(255, 255, 255, 0.08); }
+.thead .crest img { width: 62px; height: 62px; object-fit: contain; }
+.thead h2 { margin: 4px 0 0; font-family: var(--display); font-style: italic; font-weight: 800; font-size: 30px; line-height: 1.05; text-transform: uppercase; letter-spacing: 0.2px; }
+.thead .facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.thead .facts span { font-size: 12px; font-weight: 750; padding: 4px 10px; border-radius: 99px; background: rgba(255, 255, 255, 0.12); }
+.thead .form { margin: 2px 0 0; }
+.follow { margin-top: 4px; height: 36px; padding: 0 16px; border-radius: 18px; font-weight: 750; font-size: 14px; background: rgba(255, 255, 255, 0.14); color: #fff; }
+.follow.on { background: #ffd60a; color: #111; }
+.seg-row { display: flex; align-items: center; gap: 8px; margin: 12px 16px 0; }
+.seg-row .chips { flex: 1; margin: 0; }
+.search-btn { width: 38px; height: 38px; border-radius: 13px; }
 .mhead .star { font-size: 19px; color: rgba(255, 255, 255, 0.6); line-height: 1; }
 .mhead .star.on { color: #ffd60a; }
 .mhead .mid { min-width: 126px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 4px; }
@@ -312,6 +327,7 @@ main > * { flex-shrink: 0; } /* kort må aldrig klemmes sammen */
 /* ---------- Favoritter ---------- */
 .favhead { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
 .favhead .logo { width: 40px; height: 40px; }
+.favlink { display: flex; align-items: center; gap: 12px; min-width: 0; color: inherit; text-decoration: none; }
 .favhead .nm { font-weight: 750; font-size: 17px; letter-spacing: -0.2px; }
 .favhead .lg { font-size: 12px; color: var(--muted); }
 .form { margin-left: auto; display: flex; gap: 3px; }
@@ -336,9 +352,13 @@ main > * { flex-shrink: 0; } /* kort må aldrig klemmes sammen */
 .search:focus { box-shadow: 0 0 0 2px var(--accent); }
 .sheet .list { flex: 1; overflow-y: auto; padding: 12px 12px calc(20px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 12px; -webkit-overflow-scrolling: touch; }
 .sheet .list > * { flex-shrink: 0; }
-.trow { display: flex; align-items: center; gap: 12px; padding: 11px 16px; width: 100%; text-align: left; font-weight: 550; }
-.trow .logo { width: 28px; height: 28px; }
-.trow .st { margin-left: auto; font-size: 20px; color: var(--muted); }
+.trow { display: flex; align-items: center; padding-right: 6px; }
+.trow .tlink { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 10px 0 10px 16px; color: inherit; text-decoration: none; font-weight: 550; }
+.trow .logo { width: 28px; height: 28px; flex: 0 0 auto; object-fit: contain; }
+.trow .tn { min-width: 0; display: flex; flex-direction: column; }
+.trow .tn b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trow .tn small { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.trow .st { width: 44px; height: 44px; flex: 0 0 auto; font-size: 20px; color: var(--muted); }
 .trow .st.on { color: #f5c400; }
 
 /* ---------- Indstillinger ---------- */
