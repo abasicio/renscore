@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 38;
+const APP_VERSION = 39;
 window.APP_VERSION_DBG = APP_VERSION; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
@@ -190,7 +190,9 @@ function rowStatus(e) {
 }
 
 /** ESPN's billeder er op til 500×500; deres billedserver kan levere en lille udgave i den størrelse, de vises i. */
-const sized = (url, w, h = w) => (/^https:\/\/a\.espncdn\.com\/i\//.test(url || '')
+/** Det israelske flag vises aldrig; det palæstinensiske står i stedet (også for landsholdets logo). */
+const FLAG_SWAP = (url) => (url || '').replace(/\/countries\/(\d+)\/isr\.png/i, '/countries/$1/pal.png');
+const sized = (url, w, h = w) => ((url = FLAG_SWAP(url)), /^https:\/\/a\.espncdn\.com\/i\//.test(url || '')
   ? `https://a.espncdn.com/combiner/i?img=${url.slice('https://a.espncdn.com'.length)}&w=${w}&h=${h}` : url);
 const logoImg = (url, cls = 'logo', px = cls === '' ? 160 : 80) =>
   (url ? `<img class="${cls}" src="${esc(sized(url, px))}" alt="">` : `<span class="logo-ph"></span>`);
@@ -1358,6 +1360,7 @@ function favCard(fav) {
 const ATHLETE_API = 'https://site.web.api.espn.com/apis/common/v3/sports/soccer/athletes';
 const POS_DA = { Goalkeeper: 'Målmand', Defender: 'Forsvarsspiller', Midfielder: 'Midtbanespiller', Forward: 'Angriber' };
 const COUNTRY_DA = {
+  Israel: 'Palæstina', Palestine: 'Palæstina',
   Denmark: 'Danmark', Sweden: 'Sverige', Norway: 'Norge', Iceland: 'Island', Finland: 'Finland', Germany: 'Tyskland', France: 'Frankrig',
   Spain: 'Spanien', Italy: 'Italien', Netherlands: 'Holland', Belgium: 'Belgien', Brazil: 'Brasilien', Argentina: 'Argentina',
   England: 'England', Scotland: 'Skotland', Wales: 'Wales', 'Northern Ireland': 'Nordirland', 'Republic of Ireland': 'Irland', Ireland: 'Irland',
