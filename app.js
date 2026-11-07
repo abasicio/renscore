@@ -3,7 +3,7 @@
 // RenScore – fodbold- og UFC-resultater uden reklamer.
 // Data fra ESPN's åbne API. Alt brugerdata (ligaer, favoritter) gemmes kun i browseren.
 
-const APP_VERSION = 37;
+const APP_VERSION = 38;
 window.APP_VERSION_DBG = APP_VERSION; // tælles op ved hver udgivelse (samme tal som cachen i sw.js)
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 
@@ -780,6 +780,7 @@ let routeSig = location.hash;
 function routeChanged() {
   routeSig = location.hash;
   if (sheet) { sheet.remove(); sheet = null; document.body.style.overflow = ''; }
+  closePlayer();
   window.scrollTo(0, 0);
   ui.detailTab = 'details';
   ui.lineupSide = 'home';
@@ -1173,20 +1174,22 @@ function detailsTab(timeline, home, st, event) {
   }
   const rows = [...timeline].reverse().map(({ k, kind }) => {
     if (kind.t === 'marker') return `<div class="marker">${esc(kind.label.toUpperCase())}</div>`;
-    const names = (k.participants || []).map((p) => p.athlete?.displayName).filter(Boolean);
+    // Navnene kan trykkes på og åbner spillerkortet.
+    const ps = (k.participants || []).filter((p) => p.athlete?.displayName);
+    const who = (i) => (ps[i] ? `<button class="pl" data-action="player" data-id="${esc(ps[i].athlete.id || '')}">${esc(ps[i].athlete.displayName)}</button>` : '');
     const isHome = k.team?.id === home?.team?.id;
-    let icon = '', p1 = esc(names[0] || ''), p2 = '';
+    let icon = '', p1 = who(0), p2 = '';
     if (kind.t === 'goal') {
       icon = '⚽';
       if (kind.own) p2 = 'Selvmål';
       else if (kind.pen) p2 = 'Straffespark';
-      else if (names[1]) p2 = 'Assist: ' + esc(names[1]);
+      else if (ps[1]) p2 = 'Assist: ' + who(1);
     } else if (kind.t === 'yellow') icon = '<span class="card-y"></span>';
     else if (kind.t === 'red') icon = '<span class="card-r"></span>';
     else if (kind.t === 'sub') {
       icon = '⇄';
-      p1 = `<span class="arrow-in">↑</span> ${esc(names[0] || '')}`;
-      if (names[1]) p2 = `<span class="arrow-out">↓</span> ${esc(names[1])}`;
+      p1 = `<span class="arrow-in">↑</span> ${who(0)}`;
+      if (ps[1]) p2 = `<span class="arrow-out">↓</span> ${who(1)}`;
     }
     return `<div class="tl ${isHome ? '' : 'away'}"><span class="min">${esc(k.clock?.displayValue || '')}</span><span class="ic">${icon}</span>
       <div class="txt"><div class="p1">${p1}</div>${p2 ? `<div class="p2">${p2}</div>` : ''}</div></div>`;
@@ -1268,7 +1271,7 @@ function lineupsTab(home, away, rosterOf, keyEvents, logo, colors) {
     const red = count(pid, (k) => k.t === 'red'), yellow = count(pid, (k) => k.t === 'yellow');
     const name = p.athlete?.lastName || p.athlete?.shortName || p.athlete?.displayName || '';
     const out = p.subbedOut === true || p.subbedOut?.didSub === true;
-    return `<div class="player"><div class="shirt">${playerPic(p, color)}
+    return `<div class="player" data-action="player" data-id="${esc(pid || '')}"><div class="shirt">${playerPic(p, color)}
       ${red || yellow ? `<span class="b-card" style="background:${red ? '#e53935' : '#f5c400'}"></span>` : ''}
       ${out ? '<span class="b-out">↓</span>' : ''}${goals ? '<span class="b-goal">⚽</span>' : ''}</div>
       <div class="nm">${esc(name)}</div></div>`;
@@ -1281,7 +1284,7 @@ function lineupsTab(home, away, rosterOf, keyEvents, logo, colors) {
     ${r.formation ? `<div class="formation">Formation ${esc(r.formation)}</div>` : ''}
     <div class="pitch">${PITCH_LINES}<div class="rows">${lines.map((l) => `<div class="prow">${l.map(dot).join('')}</div>`).join('')}</div></div>
     <section class="card bench"><div class="card-head"><div class="t">Bænk</div></div>
-      ${benchSorted.map((p) => `<div class="sep"></div><div class="bp"><span class="j">${playerPic(p, color)}</span><span>${esc(p.athlete?.displayName || '')}</span>
+      ${benchSorted.map((p) => `<div class="sep"></div><div class="bp" data-action="player" data-id="${esc(p.athlete?.id || '')}"><span class="j">${playerPic(p, color)}</span><span>${esc(p.athlete?.displayName || '')}</span>
         ${subIn(p) ? '<span class="arrow-in">↑</span>' : ''}<span class="pos">${esc(p.position?.abbreviation || '')}</span></div>`).join('')}
     </section>`;
 }
@@ -1348,6 +1351,171 @@ function favCard(fav) {
     <div class="favhead"><a class="favlink" href="${teamHref(fav.leagueId, fav.id)}">${logoImg(fav.logo)}<div><div class="nm">${esc(fav.name)}</div><div class="lg">${league ? `${league.flag} ${esc(league.name)}` : ''}</div></div></a>
       <div class="form">${form}</div><button class="more" data-action="fav-remove" data-id="${esc(fav.id)}" aria-label="Fjern">✕</button></div>
     ${body}</section>`;
+}
+
+// ---------- Spillerkort ----------
+
+const ATHLETE_API = 'https://site.web.api.espn.com/apis/common/v3/sports/soccer/athletes';
+const POS_DA = { Goalkeeper: 'Målmand', Defender: 'Forsvarsspiller', Midfielder: 'Midtbanespiller', Forward: 'Angriber' };
+const COUNTRY_DA = {
+  Denmark: 'Danmark', Sweden: 'Sverige', Norway: 'Norge', Iceland: 'Island', Finland: 'Finland', Germany: 'Tyskland', France: 'Frankrig',
+  Spain: 'Spanien', Italy: 'Italien', Netherlands: 'Holland', Belgium: 'Belgien', Brazil: 'Brasilien', Argentina: 'Argentina',
+  England: 'England', Scotland: 'Skotland', Wales: 'Wales', 'Northern Ireland': 'Nordirland', 'Republic of Ireland': 'Irland', Ireland: 'Irland',
+  Turkey: 'Tyrkiet', 'Türkiye': 'Tyrkiet', Switzerland: 'Schweiz', Austria: 'Østrig', Poland: 'Polen', Croatia: 'Kroatien', Serbia: 'Serbien',
+  Greece: 'Grækenland', Morocco: 'Marokko', 'United States': 'USA', Japan: 'Japan', 'South Korea': 'Sydkorea', Uruguay: 'Uruguay',
+  Colombia: 'Colombia', Nigeria: 'Nigeria', Ghana: 'Ghana', Senegal: 'Senegal', Egypt: 'Egypten', 'Ivory Coast': 'Elfenbenskysten',
+  "Cote d'Ivoire": 'Elfenbenskysten', Cameroon: 'Cameroun', Algeria: 'Algeriet', Ukraine: 'Ukraine', 'Czechia': 'Tjekkiet', 'Czech Republic': 'Tjekkiet',
+  Hungary: 'Ungarn', Slovenia: 'Slovenien', Slovakia: 'Slovakiet', Romania: 'Rumænien', Mexico: 'Mexico', Canada: 'Canada', Australia: 'Australien',
+};
+const RESULT_CLS = { W: 'V', D: 'U', L: 'T' };
+const COMP_DA = { 'International Friendly': 'Venskabskampe', 'FIFA World Cup': 'VM', 'FIFA World Cup Qualifying': 'VM-kvalifikation', 'UEFA European Championship': 'EM', 'UEFA European Championship Qualifying': 'EM-kvalifikation', 'Club Friendly': 'Træningskampe' };
+/** "2026-27 English Premier League" -> "Premier League". */
+const compName = (n) => { const x = n.replace(/^\d{4}(-\d{2})?\s+/, '').replace(/^English /, ''); return COMP_DA[x] || x; };
+const athleteCache = new Map(); // id -> { info, overview }
+let pcard = null;
+
+/** Omtrentlig spilletid i kampen ud fra udskiftningerne (ESPN giver ikke minutter direkte). */
+function minutesPlayed(entry, sum) {
+  const status = sum?.header?.competitions?.[0]?.status;
+  const state = status?.type?.state;
+  if (!entry || state === 'pre') return null;
+  const end = state === 'post' ? 90 : Math.min(90, parseInt(status?.displayClock, 10) || 0);
+  const pid = entry.athlete?.id;
+  const subs = (sum.keyEvents || []).filter((k) => keyKind(k)?.t === 'sub');
+  const at = (k) => parseInt(k.clock?.displayValue, 10) || Math.round((k.clock?.value || 0) / 60);
+  const cameOn = subs.find((k) => k.participants?.[0]?.athlete?.id === pid);
+  const wentOff = subs.find((k) => k.participants?.[1]?.athlete?.id === pid);
+  const start = entry.starter ? 0 : cameOn ? at(cameOn) : null;
+  if (start == null) return 0;
+  return Math.max(0, Math.min(end, wentOff ? at(wentOff) : end) - start);
+}
+
+/** Spilleren i den åbne kamp (holdopstillingen), så kortet kan vise noget med det samme. */
+function playerInMatch(id) {
+  const r = route();
+  const sum = r.name === 'match' && data.summary.key === `${r.league}:${r.id}` ? data.summary.value : null;
+  if (!sum) return {};
+  for (const ros of sum.rosters || []) {
+    const entry = (ros.roster || []).find((p) => p.athlete?.id === id);
+    if (!entry) continue;
+    const cs = sum.header?.competitions?.[0]?.competitors || [];
+    const home = cs.find((c) => c.homeAway === 'home'), away = cs.find((c) => c.homeAway === 'away');
+    const colors = teamColors(home?.team, away?.team);
+    return { sum, entry, team: ros.team, color: ros.team?.id === away?.team?.id ? colors.a : colors.h };
+  }
+  return { sum };
+}
+
+function openPlayer(id) {
+  if (!id) return;
+  closePlayer();
+  pcard = document.createElement('div');
+  pcard.className = 'pcard-wrap';
+  pcard.dataset.id = id;
+  document.body.appendChild(pcard);
+  document.body.style.overflow = 'hidden';
+  renderPlayer();
+  // Træk kortet ned for at lukke det (kun når det er rullet helt op).
+  let y0 = null;
+  pcard.addEventListener('touchstart', (e) => { const c = pcard?.querySelector('.pcard'); y0 = c && c.scrollTop <= 0 ? e.touches[0].clientY : null; }, { passive: true });
+  pcard.addEventListener('touchend', (e) => { if (y0 != null && e.changedTouches[0].clientY - y0 > 90) closePlayer(); y0 = null; }, { passive: true });
+  if (athleteCache.has(id)) return;
+  Promise.all([
+    getJSON(`${ATHLETE_API}/${id}`).then((r) => r.athlete).catch(() => null),
+    getJSON(`${ATHLETE_API}/${id}/overview`).catch(() => null),
+  ]).then(([info, overview]) => {
+    athleteCache.set(id, { info, overview, failed: !info && !overview });
+    if (pcard?.dataset.id === id) renderPlayer();
+  });
+}
+function closePlayer() {
+  if (!pcard) return;
+  pcard.remove();
+  pcard = null;
+  if (!sheet) document.body.style.overflow = '';
+}
+
+function renderPlayer() {
+  if (!pcard) return;
+  const id = pcard.dataset.id;
+  const ctx = playerInMatch(id);
+  const got = athleteCache.get(id);
+  const a = got?.info, ov = got?.overview, e = ctx.entry;
+  const name = a?.displayName || e?.athlete?.displayName || '';
+  const jersey = a?.jersey || e?.jersey || '';
+  const pos = a?.position?.displayName || e?.position?.displayName || '';
+  const team = a?.team || ctx.team;
+  const color = ctx.color || teamColors(team, null).h;
+  const fallbackPic = isKeeper(e || { position: a?.position }) ? jerseySvg(GK_COLOR, jersey) : jerseySvg(color, jersey);
+  const photo = a?.headshot?.href || e?.athlete?.headshot?.href || `https://a.espncdn.com/i/headshots/soccer/players/full/${id}.png`;
+  const cm = /(\d+)' (\d+)"/.exec(a?.displayHeight || '');
+  const facts = [
+    a?.citizenship ? `${a.flag?.href ? `<img src="${esc(sized(a.flag.href, 40))}" alt="">` : ''}${esc(COUNTRY_DA[a.citizenship] || a.citizenship)}` : '',
+    a?.age ? `${a.age} år` : '',
+    cm ? `${Math.round((+cm[1] * 12 + +cm[2]) * 2.54)} cm` : '',
+  ].filter(Boolean);
+
+  let html = `<div class="pcard-bg" data-action="player-close"></div>
+  <div class="pcard" role="dialog" aria-label="${esc(name)}" style="--pc:${color}"><div class="grab"></div>
+    <div class="phead"><div class="pphoto">${fallbackPic}<img src="${esc(sized(photo, 220, 160))}" alt="" onerror="this.remove()"></div>
+      <div class="pid"><h2>${esc(name)}</h2><div class="pmeta">${jersey ? `#${esc(jersey)} · ` : ''}${esc(POS_DA[pos] || pos)}</div>
+        ${team ? `<div class="pclub">${logoImg(logoOf(team))}<span>${esc(team.displayName || team.name || '')}</span></div>` : ''}</div>
+      <button class="pclose" data-action="player-close" aria-label="Luk">✕</button></div>
+    ${facts.length ? `<div class="pfacts">${facts.map((f) => `<span>${f}</span>`).join('')}</div>` : ''}`;
+
+  // I denne kamp
+  if (e) {
+    const st = Object.fromEntries((e.stats || []).map((x) => [x.name, x.value]));
+    const mins = minutesPlayed(e, ctx.sum);
+    const keeper = isKeeper(e);
+    const tiles = [
+      mins != null ? [mins ? `${mins}'` : '–', e.starter ? 'Start' : mins ? 'Kom ind' : 'Bænk'] : null,
+      keeper ? [st.saves ?? 0, 'Redninger'] : [st.totalGoals ?? 0, 'Mål'],
+      keeper ? [st.goalsConceded ?? 0, 'Mål imod'] : [st.goalAssists ?? 0, 'Assist'],
+      keeper ? null : [`${st.totalShots ?? 0}<small>/${st.shotsOnTarget ?? 0}</small>`, 'Skud/på mål'],
+      st.yellowCards || st.redCards ? [st.redCards ? '🟥' : '🟨', st.redCards ? 'Rødt kort' : 'Gult kort'] : null,
+    ].filter(Boolean);
+    html += `<div class="psec">I denne kamp</div><div class="ptiles">${tiles.map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join('')}</div>`;
+  }
+
+  if (!got) return void (pcard.innerHTML = html + '<div class="spinner" style="margin:28px auto"></div></div>');
+
+  // Sæsonen pr. turnering
+  const s = ov?.statistics;
+  if (s?.splits?.length) {
+    const col = (n) => s.names.indexOf(n);
+    const keeper = (a?.position?.abbreviation || '').startsWith('G');
+    const cols = keeper ? [['starts', 'K'], ['cleanSheet', 'Rent'], ['saves', 'Redn.'], ['goalsConceded', 'Imod']]
+      : [['starts', 'K'], ['totalGoals', 'Mål'], ['goalAssists', 'Ass.'], ['yellowCards', '🟨']];
+    const use = cols.filter(([n]) => col(n) >= 0);
+    html += `<div class="psec">Sæsonen</div><table class="table ptable"><thead><tr><th style="text-align:left">Turnering</th>${use.map(([, l]) => `<th>${l}</th>`).join('')}</tr></thead><tbody>
+      ${s.splits.map((sp) => `<tr><td class="tm">${esc(compName(sp.displayName))}</td>${use.map(([n]) => `<td>${esc(sp.stats[col(n)] ?? '')}</td>`).join('')}</tr>`).join('')}
+    </tbody></table><div class="pnote">K = kampe fra start</div>`;
+  }
+
+  // Seneste kampe
+  const log = ov?.gameLog;
+  const rows = log?.statistics?.[0]?.events || [];
+  if (rows.length) {
+    const names = log.statistics[0].names;
+    const v = (r, n) => r.stats[names.indexOf(n)];
+    html += `<div class="psec">Seneste kampe</div><div class="plog">${rows.map((r) => {
+      const ev = log.events?.[r.eventId];
+      if (!ev) return '';
+      const slug = /leagueAbbrev=([^&]+)/.exec((ev.links || []).map((l) => l.href).join(' '))?.[1];
+      const res = RESULT_CLS[ev.gameResult] || '';
+      const g = +v(r, 'totalGoals') || 0, as = +v(r, 'goalAssists') || 0;
+      const role = v(r, 'appearances') === 'Started' ? 'Start' : v(r, 'appearances') === 'Sub' ? 'Ind' : '–';
+      const inner = `<span class="d">${fmt.dayMonth(parseDate(ev.gameDate))}</span>
+        <span class="o">${ev.atVs === '@' ? 'ude' : 'hjem'} ${logoImg(ev.opponent?.logo)}<b>${esc(ev.opponent?.abbreviation || ev.opponent?.displayName || '')}</b></span>
+        <span class="r ${res}">${esc(ev.score || '')}</span><span class="ro">${role}</span>
+        <span class="ga">${'⚽'.repeat(Math.min(g, 3))}${g > 3 ? '+' : ''}${as ? `<i>A${as > 1 ? as : ''}</i>` : ''}</span>`;
+      return slug ? `<a class="lrow" href="#/match/${encodeURIComponent(slug)}/${encodeURIComponent(ev.id)}">${inner}</a>` : `<div class="lrow">${inner}</div>`;
+    }).join('')}</div>`;
+  }
+  if (got.failed) html += `<div class="pnote" style="text-align:center;padding:20px">Kunne ikke hente spillerens data.</div>`;
+  else if (!s?.splits?.length && !rows.length) html += `<div class="pnote" style="text-align:center;padding:20px">ESPN har ingen statistik for spilleren.</div>`;
+  pcard.innerHTML = html + '</div>';
 }
 
 // ---------- Visning: Holdside ----------
@@ -1526,6 +1694,8 @@ const actions = {
   'fav-remove'(el) { prefs.favorites = prefs.favorites.filter((f) => f.id !== el.dataset.id); saveFavorites(); render(); },
   'fav-clear'() { prefs.favorites = []; saveFavorites(); render(); },
   'add-open'() { openAddSheet(); },
+  player(el) { openPlayer(el.dataset.id); },
+  'player-close'() { closePlayer(); },
   async 'team-open'(el) {
     // Fra en Champions League-kamp: vis holdet med dets hjemlige liga (stilling, pokaler).
     let lid = el.dataset.league;
